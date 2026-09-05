@@ -322,7 +322,7 @@ const architecturePlugin = {
               node,
               messageId: "restricted",
               data: {
-                message: "The desktop renderer is pure UI and receives product capabilities only through preload.",
+                message: "The desktop renderer receives product capabilities through its IPC or local Web connection.",
               },
             });
             return;
@@ -362,6 +362,8 @@ const architecturePlugin = {
             source.startsWith("@capacitor/") ||
             source === "react-native" ||
             source.startsWith("react-native/") ||
+            source === "@lode/application" ||
+            source.startsWith("@lode/application/") ||
             source === "@lode/desktop-client" ||
             source.startsWith("@lode/desktop-client/") ||
             source === "@lode/engine" ||
@@ -510,6 +512,70 @@ export default tseslint.config(
     },
   },
   {
+    files: ["packages/application/src/**/*.{ts,tsx}"],
+    ignores: ["packages/application/src/**/*.test.ts"],
+    rules: {
+      "architecture/ui-host-neutral": "error",
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@lode/engine-platform-*"],
+              message: "The application receives Engine capabilities from its host.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/application/src/session/**/*.ts"],
+    ignores: ["packages/application/src/**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@lode/ui", "@lode/ui/*", "react", "../shell/*", "../workspace/*", "@lode/engine-platform-*"],
+              message: "The session owns host-neutral application capabilities, independently of presentation.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/application/src/workspace/**/*.{ts,tsx}"],
+    ignores: ["packages/application/src/**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../shell/*", "@lode/engine-platform-*"],
+              message: "Workspace behavior does not depend on the application shell or host runtime.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/application/src/**/*.{ts,tsx}"],
+    languageOptions: {
+      parserOptions: { project: "packages/application/tsconfig.json", tsconfigRootDir: import.meta.dirname },
+    },
+  },
+  {
+    files: ["packages/application/src/**/*.test.ts"],
+    languageOptions: {
+      parserOptions: { project: "packages/application/tsconfig.test.json", tsconfigRootDir: import.meta.dirname },
+    },
+  },
+  {
     files: ["apps/mobile/src/**/*.{ts,tsx}"],
     languageOptions: {
       parserOptions: { project: "apps/mobile/tsconfig.json", tsconfigRootDir: import.meta.dirname },
@@ -603,14 +669,14 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/desktop/src/renderer.tsx", "apps/desktop/src/renderer/**/*.tsx", "packages/ui/src/**/*.tsx"],
+    files: ["apps/desktop/src/renderer.tsx", "packages/application/src/**/*.tsx", "packages/ui/src/**/*.tsx"],
     rules: {
       "no-restricted-globals": ["error", "Buffer", "__dirname", "__filename", "global", "module", "process", "require"],
       "design/no-raw-visual-values": "error",
     },
   },
   {
-    files: ["apps/desktop/src/renderer.tsx", "apps/desktop/src/renderer/**/*.tsx", "packages/ui/src/catalog/**/*.tsx"],
+    files: ["apps/desktop/src/renderer.tsx", "packages/application/src/**/*.tsx", "packages/ui/src/catalog/**/*.tsx"],
     rules: {
       "design/product-through-components": "error",
     },

@@ -2,7 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "."
+    "rootDir": ".",
+    "jsx": "react-jsx"
   },
   "include": [
     "apps/cli/src/**/*.ts",
@@ -29,7 +30,9 @@
     "packages/design-tokens/src/**/*.ts",
     "packages/design-system-catalog/src/**/*.ts",
     "packages/ui/src/**/*.ts",
-    "packages/ui/src/**/*.tsx"
+    "packages/ui/src/**/*.tsx",
+    "packages/application/src/**/*.ts",
+    "packages/application/src/**/*.tsx"
   ],
   "exclude": ["**/dist/**", "**/node_modules/**", "packages/engine/tests/benchmark/**"]
 }

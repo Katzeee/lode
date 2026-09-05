@@ -1,25 +1,4 @@
-export type EngineHostState = Readonly<{
-  phase: 'locked' | 'ready' | 'starting';
-  vaultExists: boolean;
-  actors: readonly Readonly<{
-    actorId: string;
-    label: string;
-    unlocked: boolean;
-  }>[];
-  workspaces: readonly Readonly<{ workspaceId: string; label: string }>[];
-}>;
-
-export type ShellCommand = Readonly<{
-  type: 'engine-command';
-  id: string;
-  command: Readonly<{
-    kind: 'open-local';
-    passphrase: string;
-    actorLabel: string;
-    workspaceLabel: string;
-  }>;
-}>;
-
+import type { ApplicationEvent } from '@lode/application/host';
 export type NativeStorageOperation =
   | Readonly<{ method: 'identity-read'; kind: 'peer' | 'vault' }>
   | Readonly<{
@@ -65,13 +44,12 @@ export type NativeStorageResponse = Readonly<{
 }>;
 
 export type HostMessage =
-  | Readonly<{ type: 'engine-state'; state: EngineHostState }>
-  | Readonly<{ type: 'engine-error'; message: string }>
-  | Readonly<{
-      type: 'engine-command-response';
+  | NativeStorageRequest
+  | { type: 'application-event'; event: ApplicationEvent }
+  | {
+      type: 'application-response';
       id: string;
       ok: boolean;
-      state?: EngineHostState;
+      value?: unknown;
       error?: string;
-    }>
-  | NativeStorageRequest;
+    };

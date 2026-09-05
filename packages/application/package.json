@@ -1,0 +1,35 @@
+{
+  "name": "@lode/application",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js"
+    },
+    "./styles.css": "./src/styles.css"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@lode/sdk": "file:../sdk",
+    "@lode/ui": "file:../ui",
+    "react": "19.2.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9",
+    "@lode/engine-platform-desktop": "file:../engine-platform-desktop"
+  }
+}

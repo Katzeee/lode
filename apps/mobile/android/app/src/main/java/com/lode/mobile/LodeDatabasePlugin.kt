@@ -43,27 +43,30 @@ class LodeDatabasePlugin : Plugin() {
   }
 
   private fun executeOperation(operation: JSObject): Any? =
-      when (val method = operation.getString("method")) {
-        "identity-read" -> readIdentityBlob(operation.getString("kind"))
-        "identity-write" -> writeIdentityBlob(operation.getString("kind"), operation.getJSONArray("bytes"))
+      when (val method = operation.requiredString("method")) {
+        "identity-read" -> readIdentityBlob(operation.requiredString("kind"))
+        "identity-write" -> writeIdentityBlob(operation.requiredString("kind"), operation.getJSONArray("bytes"))
         "workspace-list" -> listWorkspaceIds()
-        "workspace-open" -> openWorkspace(operation.getString("workspaceId"))
-        "workspace-stage" -> stageWorkspace(operation.getString("workspaceId"))
-        "workspace-promote" -> promoteWorkspace(operation.getString("storageId"))
-        "workspace-delete" -> deleteWorkspaceStorage(operation.getString("storageId"))
+        "workspace-open" -> openWorkspace(operation.requiredString("workspaceId"))
+        "workspace-stage" -> stageWorkspace(operation.requiredString("workspaceId"))
+        "workspace-promote" -> promoteWorkspace(operation.requiredString("storageId"))
+        "workspace-delete" -> deleteWorkspaceStorage(operation.requiredString("storageId"))
         "workspace-discard-staged" -> discardStagedWorkspaces()
         "document-load" ->
-            loadDocument(operation.getString("storageId"), operation.getString("documentId"))
+            loadDocument(operation.requiredString("storageId"), operation.requiredString("documentId"))
         "document-append" ->
-            appendDocumentUpdates(operation.getString("storageId"), operation.getJSONArray("updates"))
+            appendDocumentUpdates(operation.requiredString("storageId"), operation.getJSONArray("updates"))
         "document-snapshot" ->
             writeDocumentSnapshot(
-                operation.getString("storageId"),
-                operation.getString("documentId"),
+                operation.requiredString("storageId"),
+                operation.requiredString("documentId"),
                 operation.getJSONArray("bytes"),
             )
         else -> error("Unsupported storage method: $method")
       }
+
+  private fun JSObject.requiredString(key: String): String =
+      requireNotNull(getString(key)) { "Storage operation requires $key" }
 
   private fun readIdentityBlob(kind: String): Any? {
     requireIdentityKind(kind)

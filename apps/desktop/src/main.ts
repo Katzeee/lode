@@ -4,7 +4,8 @@ import { createDaemonAuthority } from "./host/authority.js";
 import { DesktopHost } from "./host/desktop-host.js";
 import { resolveDesktopHome } from "./host/home.js";
 import { registerDesktopIpc } from "./host/ipc.js";
-import { spawnPackagedDaemon } from "./host/utility-process.js";
+import { join } from "node:path";
+import { spawnDaemonProcess } from "./host/daemon-process.js";
 import { VerificationReporter, verificationReportPath } from "./host/verification-report.js";
 import { createDesktopWindow } from "./host/window.js";
 
@@ -18,7 +19,14 @@ async function runDesktop(): Promise<void> {
   // the ESM entry point before it emits ready.
   await app.whenReady();
 
-  const host = new DesktopHost(createDaemonAuthority(spawnPackagedDaemon));
+  const host = new DesktopHost(
+    createDaemonAuthority((selection) =>
+      spawnDaemonProcess(selection, join(app.getAppPath(), "dist", "daemon.js"), {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: "1",
+      }),
+    ),
+  );
   const reportPath = verificationReportPath(process.argv);
   const reporter = reportPath === null ? null : new VerificationReporter(reportPath, host.state());
   const window = await createDesktopWindow(app.getAppPath());

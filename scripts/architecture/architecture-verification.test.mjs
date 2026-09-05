@@ -866,7 +866,7 @@ test("enforces the desktop renderer, host, daemon, and mobile boundaries", async
     },
     {
       name: "renderer cannot dial the desktop transport",
-      filePath: "apps/desktop/src/renderer/product/desktop-app.tsx",
+      filePath: "apps/desktop/src/renderer.tsx",
       source: 'import "@lode/desktop-client";\n',
     },
     {
@@ -907,20 +907,20 @@ test("enforces the desktop renderer, host, daemon, and mobile boundaries", async
 test("enforces the design system boundaries", async (t) => {
   const cases = [
     {
-      name: "desktop screens cannot carry raw color literals",
-      filePath: "apps/desktop/src/renderer/product/desktop-app.tsx",
+      name: "application screens cannot carry raw color literals",
+      filePath: "packages/application/src/shell/lode-app.tsx",
       source: 'export const bad = <div className="bg-white text-[#1A2B3C]" />;\n',
       ruleId: "design/no-raw-visual-values",
     },
     {
-      name: "desktop screens cannot use arbitrary values for token-owned utilities",
-      filePath: "apps/desktop/src/renderer/product/desktop-app.tsx",
+      name: "application screens cannot use arbitrary values for token-owned utilities",
+      filePath: "packages/application/src/shell/lode-app.tsx",
       source: 'export const bad = <div className="p-[13px]" />;\n',
       ruleId: "design/no-raw-visual-values",
     },
     {
-      name: "desktop screens render controls through the ui layer",
-      filePath: "apps/desktop/src/renderer/product/desktop-app.tsx",
+      name: "application screens render controls through the ui layer",
+      filePath: "packages/application/src/shell/lode-app.tsx",
       source: 'export const bad = <button type="button">Save</button>;\n',
       ruleId: "design/product-through-components",
     },

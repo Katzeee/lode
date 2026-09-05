@@ -32,7 +32,7 @@ describe("desktop daemon authority", () => {
     expect(client.shutdown).not.toHaveBeenCalled();
   });
 
-  it("starts, owns, and gracefully closes a missing daemon", async () => {
+  it("starts a missing daemon and leaves it available when the GUI disconnects", async () => {
     const process = ownedDaemonFixture(8123);
     const client = clientFixture(() => {
       process.resolveExit({ code: 0, output: "" });
@@ -50,9 +50,9 @@ describe("desktop daemon authority", () => {
     });
 
     await expect(authority.connect(selection)).resolves.toMatchObject({ ownership: "owned", ownedPid: 8123 });
-    await expect(authority.close()).resolves.toEqual({ ownedPid: 8123, ownedExited: true, exitCode: 0 });
+    await expect(authority.close()).resolves.toEqual({ ownedPid: 8123, ownedExited: false, exitCode: null });
     expect(spawn).toHaveBeenCalledWith(selection);
-    expect(client.shutdown).toHaveBeenCalledOnce();
+    expect(client.shutdown).not.toHaveBeenCalled();
     expect(process.terminate).not.toHaveBeenCalled();
   });
 

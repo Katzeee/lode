@@ -1,17 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
-
-import { desktopChannels, type DesktopBridge, type DesktopState } from "./bridge/contract.cjs";
-
-const bridge: DesktopBridge = {
-  getState: () => ipcRenderer.invoke(desktopChannels.state) as Promise<DesktopState>,
-  initializeHome: (input) => ipcRenderer.invoke(desktopChannels.initializeHome, input),
-  unlockVault: (passphrase) => ipcRenderer.invoke(desktopChannels.unlockVault, passphrase),
-  createWorkspace: (label) => ipcRenderer.invoke(desktopChannels.createWorkspace, label),
-  onStateChanged: (listener) => {
-    const receive = (_event: Electron.IpcRendererEvent, state: DesktopState) => listener(state);
-    ipcRenderer.on(desktopChannels.stateChanged, receive);
-    return () => ipcRenderer.removeListener(desktopChannels.stateChanged, receive);
+import type { ApplicationConnection, ApplicationEvent } from "@lode/application/host";
+import { desktopChannels } from "./bridge/contract.cjs";
+const connection: ApplicationConnection = {
+  request: (method, input) => ipcRenderer.invoke(desktopChannels.request, method, input) as Promise<unknown>,
+  subscribe: (listener) => {
+    const receive = (_event: Electron.IpcRendererEvent, event: ApplicationEvent) => listener(event);
+    ipcRenderer.on(desktopChannels.event, receive);
+    return () => ipcRenderer.removeListener(desktopChannels.event, receive);
   },
 };
-
-contextBridge.exposeInMainWorld("lode", bridge);
+contextBridge.exposeInMainWorld("lode", connection);

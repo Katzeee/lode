@@ -2,9 +2,9 @@ import { spawn } from "node:child_process";
 import { cp, mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { context } from "esbuild";
+import { build, context } from "esbuild";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(scriptDirectory, "..");
@@ -32,6 +32,8 @@ const tailwind = spawn(
 
 const buildContext = await context({
   alias: {
+    "@lode/application": resolve(appRoot, "../../packages/application/src/index.ts"),
+    "@lode/application/host": resolve(appRoot, "../../packages/application/src/host.ts"),
     "@lode/design-system-catalog": designCatalogEntry,
     "@lode/design-tokens": designTokensEntry,
     "@lode/ui": uiEntry,
@@ -56,14 +58,33 @@ const buildContext = await context({
 
 await buildContext.watch();
 const port = Number(process.env.LODE_PREVIEW_PORT ?? "4173");
-const server = await buildContext.serve({ host: "127.0.0.1", port, servedir: output });
-process.stdout.write(`Lode Design System: http://127.0.0.1:${String(server.port)}/#/design-system\n`);
+const assets = await buildContext.serve({ host: "127.0.0.1", port: 0, servedir: output });
+await build({
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node22",
+  external: ["better-sqlite3"],
+  entryPoints: { web: join(source, "web.ts"), daemon: join(source, "daemon.ts") },
+  outdir: join(appRoot, "dist"),
+});
+const { startWebApplication } = await import(pathToFileURL(join(appRoot, "dist/web.js")).href);
+const application = await startWebApplication(assets.port, port);
+process.stdout.write(`Lode: ${application.origin}/\n`);
 
 const stop = async () => {
+  await application.close();
   tailwind.kill();
   await buildContext.dispose();
   process.exit(0);
 };
 process.once("SIGINT", () => void stop());
 process.once("SIGTERM", () => void stop());
+
+process.on("message", (message) => {
+  if (message === "stop") {
+    void stop();
+  }
+});
+
 await new Promise(() => undefined);

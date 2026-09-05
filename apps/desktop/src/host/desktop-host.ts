@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { ApplicationSession, dispatchApplicationRequest, type ApplicationEvent } from "@lode/application/host";
 
 import type { DesktopClient, HomeSelection } from "@lode/desktop-client";
 
-import type { DesktopState, InitializeHomeInput, InitializeHomeResult } from "../bridge/contract.cjs";
+import type { DesktopState } from "../bridge/contract.cjs";
 import type { AuthorityShutdown, DaemonAuthority } from "./authority.js";
 
 const initialState: DesktopState = {
@@ -24,7 +24,34 @@ export class DesktopHost {
   private client: DesktopClient | undefined;
   private readonly listeners = new Set<StateListener>();
 
-  constructor(private readonly authority: DaemonAuthority) {}
+  private session: ApplicationSession | undefined;
+  private readonly eventListeners = new Set<(event: ApplicationEvent) => void>();
+  private stopEvents: (() => void) | undefined;
+  private resolveSession!: (session: ApplicationSession) => void;
+  private rejectSession!: (error: Error) => void;
+  private readonly sessionReady = new Promise<ApplicationSession>((resolve, reject) => {
+    this.resolveSession = resolve;
+    this.rejectSession = reject;
+  });
+
+  constructor(private readonly authority: DaemonAuthority) {
+    void this.sessionReady.catch(() => undefined);
+  }
+
+  async request(method: string, input: unknown): Promise<unknown> {
+    return dispatchApplicationRequest(await this.sessionReady, method, input);
+  }
+
+  onApplicationEvent(listener: (event: ApplicationEvent) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
+  }
+
+  private emit(event: ApplicationEvent): void {
+    for (const listener of this.eventListeners) {
+      listener(event);
+    }
+  }
 
   state(): DesktopState {
     return this.current;
@@ -45,6 +72,24 @@ export class DesktopHost {
     try {
       const connection = await this.authority.connect(selection);
       this.client = connection.client;
+      const client = connection.client;
+      this.session = new ApplicationSession({
+        application: client,
+        identity: client,
+        workspaces: {
+          listWorkspaces: () => client.listWorkspaces(),
+          createWorkspace: (input) => client.createWorkspace(input.workspaceId, input.label, input.ownerActorId),
+        },
+      });
+      this.session.onStateChanged((state) => {
+        this.emit({ kind: "state", state });
+        void this.refresh().catch((error: unknown) => this.fail(error));
+      });
+      this.stopEvents = client.subscribe(
+        (event) => this.emit({ kind: "engine", event }),
+        (error) => this.emit({ kind: "error", message: describe(error) }),
+      );
+      this.resolveSession(this.session);
       this.publish({
         ...this.current,
         authority: connection.ownership,
@@ -56,48 +101,15 @@ export class DesktopHost {
     }
   }
 
-  async initializeHome(input: InitializeHomeInput): Promise<InitializeHomeResult> {
-    const client = this.requireClient();
-    try {
-      const created = await client.createActor({ label: input.actorLabel, passphrase: input.passphrase });
-      await client.createWorkspace(randomUUID(), input.workspaceLabel, created.actorId);
-      return { recoveryPhrase: created.recoveryPhrase, state: await this.refresh() };
-    } catch (error) {
-      this.operationFailed(error);
-    }
-  }
-
-  async unlockVault(passphrase: string): Promise<DesktopState> {
-    try {
-      await this.requireClient().unlockVault(passphrase);
-      return await this.refresh();
-    } catch (error) {
-      this.operationFailed(error);
-    }
-  }
-
-  async createWorkspace(label: string): Promise<DesktopState> {
-    const client = this.requireClient();
-    try {
-      const identity = await client.listActors();
-      const actor = identity.actors.find((candidate) => candidate.unlocked);
-      if (actor === undefined) {
-        throw new Error("Unlock the Actor Vault before creating a Workspace");
-      }
-      await client.createWorkspace(randomUUID(), label, actor.actorId);
-      return await this.refresh();
-    } catch (error) {
-      this.operationFailed(error);
-    }
-  }
-
   async close(): Promise<AuthorityShutdown> {
+    this.stopEvents?.();
     this.client = undefined;
     return this.authority.close();
   }
 
   fail(error: unknown, detail = "Lode cannot continue until the problem is resolved."): DesktopState {
     const message = describe(error);
+    this.rejectSession(toError(error));
     const failed: DesktopState = {
       ...this.current,
       phase: "error",
@@ -133,11 +145,6 @@ export class DesktopHost {
     };
     this.publish(state);
     return state;
-  }
-
-  private operationFailed(error: unknown): never {
-    this.publish({ ...this.current, error: describe(error) });
-    throw toError(error);
   }
 
   private requireClient(): DesktopClient {

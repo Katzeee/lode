@@ -1,17 +1,16 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-
-import type { DesktopBridge } from "./bridge/contract.cjs";
-import { DesktopRoot } from "./renderer/desktop-root.js";
+import { LodeApp, connectApplication, type ApplicationConnection } from "@lode/application";
+import { createWebConnection } from "./renderer/web-connection.js";
 
 const root = document.querySelector("#root");
 if (root === null) {
   throw new Error("Lode renderer root is missing");
 }
-const desktopWindow = window as unknown as Window & Readonly<{ lode?: DesktopBridge }>;
-
+const connection = (window as unknown as { lode?: ApplicationConnection }).lode ?? createWebConnection();
+const host = connectApplication(connection);
 createRoot(root).render(
   <StrictMode>
-    <DesktopRoot bridge={desktopWindow.lode} />
+    <LodeApp host={host} />
   </StrictMode>,
 );

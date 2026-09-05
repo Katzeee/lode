@@ -9,9 +9,9 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@lode/design-tokens && npm run build --workspace=@lode/design-system-catalog && npm run build --workspace=@lode/ui && npm run build --workspace=@lode/system-schema && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/sdk && npm run build --workspace=@lode/node-endpoint && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/engine-platform-desktop && npm run build --workspace=@lode/engine-platform-mobile && npm run build --workspace=@lode/app-mobile && npm run build --workspace=@lode/desktop-client && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli && npm run build --workspace=@lode/app-desktop",
+    "build": "npm run build --workspace=@lode/design-tokens && npm run build --workspace=@lode/design-system-catalog && npm run build --workspace=@lode/ui && npm run build --workspace=@lode/system-schema && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/sdk && npm run build --workspace=@lode/node-endpoint && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/engine-platform-desktop && npm run build --workspace=@lode/engine-platform-mobile && npm run build --workspace=@lode/application && npm run build --workspace=@lode/app-mobile && npm run build --workspace=@lode/desktop-client && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli && npm run build --workspace=@lode/app-desktop",
     "build:desktop": "node scripts/desktop/build-desktop.mjs",
-    "dev:desktop-web": "npm run build --workspace=@lode/design-tokens && npm run build --workspace=@lode/design-system-catalog && npm run build --workspace=@lode/ui && npm run dev:web --workspace=@lode/app-desktop",
+    "dev:desktop-web": "npm run build && npm run dev:web --workspace=@lode/app-desktop",
     "build:mobile:android": "node scripts/mobile/build-android.mjs",
     "test": "npm run build && npm run test:built",
     "test:built": "npm run test --workspaces --if-present",
@@ -32,7 +32,9 @@
     "verify:fact-sot": "npm run typecheck:test --workspace=@lode/engine && npm run test --workspace=@lode/engine -- src/subsystems/workspace/fact-sot.acceptance.test.ts tests/fact-sot-governance.acceptance.test.ts tests/proposal-mode.property.test.ts",
     "verify:architecture": "node --test scripts/architecture/architecture-verification.test.mjs && node scripts/verify-architecture.mjs",
     "verify": "npm run verify:eol && npm run build && npm run verify:wire && npm run typecheck && npm run lint && npm run test:built && npm run verify:architecture && npm run verify:acceptance-catalog",
-    "prepare": "husky"
+    "prepare": "husky",
+    "verify:application-web": "node scripts/application/verify-web.mjs",
+    "verify:application-android": "node scripts/mobile/verify-android.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx}": [

@@ -1,48 +1,24 @@
 import type { BrowserWindow, IpcMain, IpcMainInvokeEvent } from "electron";
-
-import {
-  desktopChannels,
-  parseInitializeHomeInput,
-  parsePassphrase,
-  parseWorkspaceLabel,
-} from "../bridge/contract.cjs";
+import { desktopChannels } from "../bridge/contract.cjs";
 import type { DesktopHost } from "./desktop-host.js";
-
 export function registerDesktopIpc(ipc: IpcMain, window: BrowserWindow, host: DesktopHost): () => void {
-  ipc.handle(desktopChannels.state, (event) => {
+  ipc.handle(desktopChannels.request, (event, method: unknown, input: unknown) => {
     validateSender(event, window);
-    return host.state();
+    if (typeof method !== "string") {
+      throw new Error("Application operation must be text");
+    }
+    return host.request(method, input);
   });
-  ipc.handle(desktopChannels.initializeHome, async (event, value: unknown) => {
-    validateSender(event, window);
-    return host.initializeHome(parseInitializeHomeInput(value));
-  });
-  ipc.handle(desktopChannels.unlockVault, async (event, value: unknown) => {
-    validateSender(event, window);
-    return host.unlockVault(parsePassphrase(value));
-  });
-  ipc.handle(desktopChannels.createWorkspace, async (event, value: unknown) => {
-    validateSender(event, window);
-    return host.createWorkspace(parseWorkspaceLabel(value));
-  });
-  const unsubscribe = host.subscribe((state) => {
+  const unsubscribe = host.onApplicationEvent((event) => {
     if (!window.isDestroyed()) {
-      window.webContents.send(desktopChannels.stateChanged, state);
+      window.webContents.send(desktopChannels.event, event);
     }
   });
   return () => {
     unsubscribe();
-    for (const channel of [
-      desktopChannels.state,
-      desktopChannels.initializeHome,
-      desktopChannels.unlockVault,
-      desktopChannels.createWorkspace,
-    ]) {
-      ipc.removeHandler(channel);
-    }
+    ipc.removeHandler(desktopChannels.request);
   };
 }
-
 function validateSender(event: IpcMainInvokeEvent, window: BrowserWindow): void {
   const mainFrame = window.webContents.mainFrame;
   if (event.sender !== window.webContents || event.senderFrame !== mainFrame || !mainFrame.url.startsWith("file://")) {

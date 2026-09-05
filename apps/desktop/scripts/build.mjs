@@ -37,6 +37,7 @@ const nodeBundle = {
 };
 
 await Promise.all([
+  build({ ...nodeBundle, entryPoints: [join(source, "web.ts")], format: "esm", outfile: join(output, "web.js") }),
   build({
     ...nodeBundle,
     entryPoints: [join(source, "main.ts")],

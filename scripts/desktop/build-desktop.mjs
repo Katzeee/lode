@@ -15,6 +15,7 @@ const workspaces = [
   "@lode/engine-platform-desktop",
   "@lode/desktop-client",
   "@lode/daemon",
+  "@lode/application",
   "@lode/app-desktop",
 ];
 

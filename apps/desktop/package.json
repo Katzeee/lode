@@ -12,7 +12,8 @@
     "./preload": {
       "require": "./dist/preload.cjs"
     },
-    "./renderer": "./dist/renderer.js"
+    "./renderer": "./dist/renderer.js",
+    "./web": "./dist/web.js"
   },
   "scripts": {
     "clean": "node ../../scripts/clean-package-dist.mjs",
@@ -30,10 +31,10 @@
     "@lode/daemon": "file:../../packages/daemon",
     "@lode/design-tokens": "file:../../packages/design-tokens",
     "@lode/desktop-client": "file:../../packages/desktop-client",
-    "@lode/ui": "file:../../packages/ui",
     "electron": "41.10.7",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "@lode/application": "file:../../packages/application"
   },
   "devDependencies": {
     "@electron-forge/cli": "7.11.2",

@@ -30,8 +30,12 @@ for (const workspace of [
   "@lode/design-tokens",
   "@lode/design-system-catalog",
   "@lode/ui",
+  "@lode/system-schema",
+  "@lode/protocol",
+  "@lode/sdk",
   "@lode/engine",
   "@lode/engine-platform-mobile",
+  "@lode/application",
   "@lode/app-mobile",
 ]) {
   run(process.execPath, [npmCli, "run", "build", `--workspace=${workspace}`], { cwd: repositoryRoot });

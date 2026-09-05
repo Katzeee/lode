@@ -89,61 +89,20 @@ export class DaemonAuthority {
     }
   }
 
-  async close(): Promise<AuthorityShutdown> {
+  close(): Promise<AuthorityShutdown> {
     const client = this.client;
     const owned = this.owned;
     this.client = undefined;
     this.owned = undefined;
-    const failures: Error[] = [];
-    let gracefulShutdown = false;
-    if (client !== undefined && owned !== undefined) {
-      try {
-        await client.shutdown();
-        gracefulShutdown = true;
-      } catch (error) {
-        failures.push(toError(error));
-      }
-    }
-    if (client !== undefined) {
-      try {
-        client.close();
-      } catch (error) {
-        failures.push(toError(error));
-      }
-    }
-    let exit: OwnedDaemonExit | undefined;
-    if (owned !== undefined) {
-      try {
-        exit = gracefulShutdown
-          ? await withTimeout(owned.exit, 10_000, "Desktop-owned daemon did not exit after its shutdown request")
-          : await owned.terminate();
-      } catch (error) {
-        failures.push(toError(error));
-        if (gracefulShutdown) {
-          try {
-            exit = await owned.terminate();
-          } catch (terminationError) {
-            failures.push(toError(terminationError));
-          }
-        }
-      }
-    }
-    if (failures.length > 0) {
-      if (failures.length === 1) {
-        throw toError(failures[0]);
-      }
-      throw new AggregateError(failures, "Desktop authority cleanup failed");
-    }
-    return {
-      ownedPid: owned?.pid ?? null,
-      ownedExited: owned === undefined || exit !== undefined,
-      exitCode: exit?.code ?? null,
-    };
+    client?.close();
+    return Promise.resolve({ ownedPid: owned?.pid ?? null, ownedExited: owned === undefined, exitCode: null });
   }
 
   private async cleanupAfterFailure(failure: unknown): Promise<never> {
     try {
+      const owned = this.owned;
       await this.close();
+      await owned?.terminate();
     } catch (cleanupError) {
       throw new AggregateError(
         [toError(failure), toError(cleanupError)],
@@ -187,20 +146,4 @@ function hasCode(value: unknown, code: string): boolean {
 
 function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
-}
-
-function withTimeout<Result>(promise: Promise<Result>, timeoutMs: number, message: string): Promise<Result> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-    void promise.then(
-      (result) => {
-        clearTimeout(timer);
-        resolve(result);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(toError(error));
-      },
-    );
-  });
 }

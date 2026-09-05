@@ -20,9 +20,9 @@
     "@capacitor/core": "8.5.1",
     "@lode/engine": "file:../../packages/engine",
     "@lode/engine-platform-mobile": "file:../../packages/engine-platform-mobile",
-    "@lode/ui": "file:../../packages/ui",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "@lode/application": "file:../../packages/application"
   },
   "devDependencies": {
     "@capacitor/android": "8.5.1",

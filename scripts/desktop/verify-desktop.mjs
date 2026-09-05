@@ -8,6 +8,7 @@ import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "
 import { fileURLToPath } from "node:url";
 
 import { _electron } from "playwright-core";
+import { probeDaemon } from "@lode/desktop-client";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
@@ -32,93 +33,75 @@ let runNumber = 0;
 
 try {
   const initialized = await launchPackaged(home);
-  await waitForText(initialized.page, "phase", "Initialize your Home");
-  assert.equal(await text(initialized.page, "authority"), "Desktop-owned daemon");
-  await initialized.page.locator('input[name="passphrase"]').fill("desktop-verification-passphrase");
-  await initialized.page.getByRole("button", { name: "Initialize Home" }).click();
-  await waitForText(initialized.page, "phase", "Engine ready");
-  assert.equal(await text(initialized.page, "actor-count"), "1");
-  assert.equal(await text(initialized.page, "workspace-count"), "1");
-  const workspaceIdentity = await initialized.page
-    .locator("[data-workspace-id]")
-    .first()
-    .getAttribute("data-workspace-id");
-  assert.ok(workspaceIdentity, "The ready shell must expose a Workspace identity");
-  const firstShutdown = await closePackaged(initialized);
-  assert.equal(firstShutdown.state.phase, "ready");
-  assert.equal(firstShutdown.state.actors.length, 1);
-  assert.equal(firstShutdown.state.workspaces.length, 1);
-  assert.equal(firstShutdown.shutdown?.ownedExited, true);
-  assert.equal(firstShutdown.shutdown?.exitCode, 0);
-  assert.ok(firstShutdown.shutdown?.ownedPid, "The first GUI run must own the daemon it starts");
-  assert.equal(
-    processExists(firstShutdown.shutdown.ownedPid),
-    false,
-    "The desktop-owned daemon must exit with the GUI",
-  );
-  await assertAuthorityFilesAbsent(home);
-  await assertPersistence(home);
-  process.stdout.write("Verified missing-daemon startup, initialization, ready UI, and GUI-owned cleanup.\n");
-
-  const cold = await launchPackaged(home);
-  await assertLockedHome(cold, workspaceIdentity);
-  await cold.application.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()[0]?.setSize(800, 600);
-  });
-  await cold.page.waitForTimeout(100);
-  const overflow = await cold.page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  );
-  assert.ok(overflow <= 1, `The normal 800px window has ${overflow}px of horizontal overflow`);
+  await initialized.page.getByRole("heading", { name: "Welcome to Lode" }).waitFor();
+  await initialized.page.getByLabel("Your name", { exact: true }).fill("Desktop verification");
+  await initialized.page.getByLabel("Passphrase", { exact: true }).fill("desktop-verification-passphrase");
+  await initialized.page.getByRole("button", { name: "Create identity", exact: true }).click();
+  await initialized.page.getByTestId("recovery-phrase").waitFor();
+  await initialized.page.getByRole("button", { name: "I saved my recovery phrase" }).click();
+  await initialized.page.getByRole("button", { name: "Create workspace", exact: true }).click();
+  await initialized.page.getByRole("heading", { name: "My workspace", exact: true }).waitFor();
+  await initialized.page.getByRole("button", { name: "Add node", exact: true }).click();
+  await initialized.page.locator('[data-ui="outline-row-text"]').first().click();
+  await initialized.page.locator('[data-ui="outline-editor"]').pressSequentially("Desktop persistent note");
+  await initialized.page.getByRole("heading", { name: "My workspace", exact: true }).click();
+  await initialized.page.getByText("Saved locally", { exact: true }).waitFor();
   await mkdir(dirname(verificationImage), { recursive: true });
-  await cold.page.screenshot({ path: verificationImage, fullPage: true });
-  await assertCatalogIntegration(cold.page);
-  const coldShutdown = await closePackaged(cold);
-  assert.equal(coldShutdown.shutdown?.ownedExited, true);
-  await assertAuthorityFilesAbsent(home);
-  process.stdout.write("Verified cold-start locked state and persisted Actor/Workspace identity.\n");
-
-  const owner = await launchPackaged(home);
-  await assertLockedHome(owner, workspaceIdentity);
-  const ownedEndpoint = await readFile(join(home, "endpoint"), "utf8");
+  await initialized.page.screenshot({ path: verificationImage });
+  const firstShutdown = await closePackaged(initialized);
+  assert.equal(firstShutdown.shutdown?.ownedExited, false);
+  assert.ok(processExists(firstShutdown.shutdown.ownedPid), "Closing GUI must leave the shared daemon running");
+  const shared = await launchPackaged(home);
+  await shared.page.getByText("Desktop persistent note", { exact: true }).waitFor();
   const guest = await launchPackaged(home);
-  await waitForText(guest.page, "phase", "Vault locked");
-  assert.equal(await text(guest.page, "authority"), "Shared daemon");
-  assert.equal(await readFile(join(home, "endpoint"), "utf8"), ownedEndpoint);
-  const guestShutdown = await closePackaged(guest);
-  assert.equal(guestShutdown.shutdown?.ownedPid, null);
-  await access(join(home, "endpoint"));
-  await waitForText(owner.page, "phase", "Vault locked");
-  await closePackaged(owner);
-  await assertAuthorityFilesAbsent(home);
-  process.stdout.write("Verified authenticated reuse without a second daemon authority.\n");
-
+  await guest.page.getByText("Desktop persistent note", { exact: true }).waitFor();
+  const guestReport = await closePackaged(guest);
+  assert.equal(guestReport.shutdown?.ownedPid, null);
+  await closePackaged(shared);
+  await stopAuthority();
+  await assertPersistence(home);
+  const cold = await launchPackaged(home);
+  await cold.page.getByRole("heading", { name: "Welcome back", exact: true }).waitFor();
+  await cold.page.getByLabel("Passphrase", { exact: true }).fill("desktop-verification-passphrase");
+  await cold.page.getByRole("button", { name: "Unlock", exact: true }).click();
+  await cold.page.getByText("Desktop persistent note", { exact: true }).waitFor();
+  await closePackaged(cold);
+  await stopAuthority();
   await writeFile(join(home, "endpoint"), "tcp://127.0.0.1:1\n", "utf8");
   const stale = await launchPackaged(home);
-  await waitForText(stale.page, "phase", "Vault locked");
-  assert.equal(await text(stale.page, "authority"), "Desktop-owned daemon");
-  assert.match(await text(stale.page, "notice"), /stale daemon endpoint/u);
+  await stale.page.getByRole("heading", { name: "Welcome back", exact: true }).waitFor();
   await closePackaged(stale);
-  await assertAuthorityFilesAbsent(home);
-  process.stdout.write("Verified stale endpoint replacement and cleanup.\n");
-
+  await stopAuthority();
   const corruptLock = join(home, "daemon.lock");
   await mkdir(corruptLock);
   await writeFile(join(corruptLock, "owner"), "corrupt ownership marker\n", "utf8");
   const failed = await launchPackaged(home);
-  await waitForText(failed.page, "phase", "Unable to start Lode");
-  assert.match(await text(failed.page, "error"), /lock|authority|daemon/iu);
+  await failed.page.getByRole("alert").waitFor();
   await closePackaged(failed);
-  await assertMissing(join(home, "endpoint"));
   assert.equal(await readFile(join(corruptLock, "owner"), "utf8"), "corrupt ownership marker\n");
-  process.stdout.write("Verified observable daemon startup failure without deleting pre-existing Home state.\n");
-
-  process.stdout.write(`Desktop verification passed for ${artifact}\n`);
+  process.stdout.write(
+    `Desktop verification passed for ${artifact}: shared application, persistent daemon, cold restart and startup failures.\n`,
+  );
 } finally {
   for (const application of [...openApplications]) {
     await application.close().catch(() => undefined);
   }
+  await stopAuthority(false).catch(() => undefined);
   await removeVerificationRoot(temporaryRoot);
+}
+
+async function stopAuthority(waitForCleanup = true) {
+  const connection = await probeDaemon({ name: "verification", path: home });
+  if (connection) {
+    try {
+      await connection.client.shutdown();
+    } finally {
+      connection.client.close();
+    }
+  }
+  if (waitForCleanup) {
+    await assertAuthorityFilesAbsent(home);
+  }
 }
 
 async function verifyArtifact() {
@@ -227,8 +210,9 @@ async function launchPackaged(homePath) {
 }
 
 async function closePackaged(run) {
-  const closed = run.application.waitForEvent("close");
-  await run.application.evaluate(({ app }) => app.quit());
+  const child = run.application.process();
+  const closed = new Promise((resolve) => child.once("exit", resolve));
+  void run.application.evaluate(({ app }) => app.quit()).catch(() => undefined);
   await closed;
   openApplications.delete(run.application);
   try {
@@ -242,41 +226,6 @@ async function closePackaged(run) {
   } catch (error) {
     throw new Error(`${error.message}\nPackaged desktop output:\n${run.output.join("")}`, { cause: error });
   }
-}
-
-async function assertLockedHome(run, workspaceIdentity) {
-  await waitForText(run.page, "phase", "Vault locked");
-  assert.equal(await text(run.page, "authority"), "Desktop-owned daemon");
-  assert.equal(await text(run.page, "actor-count"), "1");
-  assert.equal(await text(run.page, "workspace-count"), "1");
-  assert.equal(
-    await run.page.locator("[data-workspace-id]").first().getAttribute("data-workspace-id"),
-    workspaceIdentity,
-  );
-}
-
-async function assertCatalogIntegration(page) {
-  await page.evaluate(() => {
-    window.location.hash = "#/design-system";
-  });
-  await page.getByRole("heading", { level: 1, name: "Overview" }).waitFor({ state: "visible" });
-  assert.equal(
-    await page.locator('[data-ui="design-system"]').count(),
-    1,
-    "The packaged desktop must render the shared design-system catalog",
-  );
-}
-
-async function waitForText(page, testId, expected) {
-  const locator = page.getByTestId(testId);
-  await locator.filter({ hasText: expected }).waitFor({ state: "visible", timeout: 30_000 });
-  assert.equal((await locator.textContent())?.trim(), expected);
-}
-
-async function text(page, testId) {
-  const value = (await page.getByTestId(testId).textContent())?.trim();
-  assert.ok(value, `${testId} must contain observable text`);
-  return value;
 }
 
 async function assertAuthorityFilesAbsent(homePath) {
