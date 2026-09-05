@@ -9,7 +9,7 @@ export function LodeApp({ host }: Readonly<{ host: ApplicationHost }>) {
   const [state, setState] = useState<ApplicationState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [route, setRoute] = useState(() => location.hash);
-  const workspaceId = route.startsWith("#/workspace/") ? decodeURIComponent(route.slice(12)) : null;
+  const workspaceId = route.startsWith("#/workspace/") ? decodeURIComponent(route.split("/")[2] ?? "") : null;
   const [recovery, setRecovery] = useState<string | null>(null);
   const refresh = () =>
     host
@@ -103,6 +103,10 @@ export function LodeApp({ host }: Readonly<{ host: ApplicationHost }>) {
             key={selected.workspaceId}
             host={host}
             workspace={selected}
+            rootNodeId={route.split("/")[3] === "node" ? decodeURIComponent(route.split("/")[4] ?? "") : undefined}
+            onNavigate={(nodeId) => {
+              location.hash = `#/workspace/${encodeURIComponent(selected.workspaceId)}${nodeId === selected.workspaceId ? "" : `/node/${encodeURIComponent(nodeId)}`}`;
+            }}
             actorId={state.actors.find((actor) => actor.unlocked)?.actorId ?? ""}
           />
         )}

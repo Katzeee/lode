@@ -1,28 +1,33 @@
 import {
   Alert,
   Button,
+  OutlineBullet,
   OutlineBulletDot,
+  Breadcrumbs,
+  Icon,
   OutlineTree,
   PageScaffold,
   Spinner,
-  type OutlineContent,
-  type OutlineItemViewModel,
   type OutlineTreeEditing,
 } from "@lode/ui";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { ApplicationHost } from "../session/contract.js";
-import { canEditNode, nodeText } from "./workspace-model.js";
+import { nodeLabel } from "./node-source.js";
+import { projectWorkspaceOutline, type WorkspaceAppearance } from "./workspace-outline.js";
+import { workspaceOutlineActions } from "./workspace-outline-actions.js";
+import { workspaceExtensions } from "./workspace-extensions.js";
+import { workspaceCompletions } from "./workspace-completions.js";
 import { WorkspaceController } from "./workspace-controller.js";
 
 type Props = Readonly<{
   host: ApplicationHost;
   workspace: Readonly<{ workspaceId: string; label: string }>;
   actorId: string;
+  rootNodeId?: string;
+  onNavigate(nodeId: string): void;
 }>;
-const presentation = { resolve: () => ({ bullet: { content: <OutlineBulletDot /> } }) };
-const source = (content: OutlineContent) =>
-  content.map((part) => (part.type === "text" ? part.text : part.source)).join("");
-export function WorkspacePage({ host, workspace, actorId }: Props) {
+
+export function WorkspacePage({ host, workspace, actorId, rootNodeId, onNavigate }: Props) {
   const controller = useMemo(
     () => new WorkspaceController(host.engine, workspace.workspaceId, actorId),
     [host, workspace.workspaceId, actorId],
@@ -48,12 +53,30 @@ export function WorkspacePage({ host, workspace, actorId }: Props) {
       window.removeEventListener("beforeunload", beforeUnload);
     };
   }, [controller]);
-  const appearances = new Map<string, string>();
-  const occurrenceId = (key: string) => appearances.get(key) ?? "";
+  const graph = state.graph;
+  const root = rootNodeId ?? graph?.rootNodeId;
+  const projection = graph ? projectWorkspaceOutline(graph, state.drafts, root ?? graph.rootNodeId) : null;
+  const appearances = projection?.bindings ?? new Map<string, WorkspaceAppearance>();
+  const occurrenceId = (key: string) => appearances.get(key)?.occurrenceId ?? "";
+  const contentNodeId = (key: string) => appearances.get(key)?.contentNodeId ?? "";
+  const completion = state.graph
+    ? workspaceCompletions({ graph: state.graph, controller, occurrenceId, contentNodeId })
+    : { providers: [], commands: [] };
+  const structure = state.graph
+    ? workspaceOutlineActions(state.graph, controller, appearances, rootNodeId ?? state.graph.rootNodeId)
+    : undefined;
   const editing: OutlineTreeEditing = {
-    onContentChange: (key, content) => controller.stage(occurrenceId(key), source(content)),
+    onCopy: structure?.copy,
+    onPaste: structure?.paste,
+    onCreateRoot: structure?.createRoot,
+    completionProviders: completion.providers,
+    onCompletion: (key, _provider, _item, content) => {
+      controller.stageNode(contentNodeId(key), content);
+      controller.flush();
+    },
+    onContentChange: (key, content) => controller.stageNode(contentNodeId(key), content),
     onContentCommit: (key, content) => {
-      controller.stage(occurrenceId(key), source(content));
+      controller.stageNode(contentNodeId(key), content);
       controller.flush();
     },
     onCreateBefore: (key) => controller.create(occurrenceId(key), "before"),
@@ -62,69 +85,68 @@ export function WorkspacePage({ host, workspace, actorId }: Props) {
       setExpanded((keys) => new Set(keys).add(key));
       controller.create(occurrenceId(key), "child");
     },
+    onClearAppearance: structure?.clear,
+    onMerge: (merge) => structure?.merge(merge),
     onDeleteEmpty: (key) => controller.deleteEmpty(occurrenceId(key)),
     onSplit: (key, before, after, placement) => {
       if (placement === "child") {
         setExpanded((keys) => new Set(keys).add(key));
       }
-      controller.split(occurrenceId(key), source(before), source(after), placement);
+      controller.split(occurrenceId(key), before, after, placement);
     },
     history: {
       checkpoint: () => {},
-      undo: () => {
-        controller.history("undo");
-        return null;
-      },
-      redo: () => {
-        controller.history("redo");
-        return null;
-      },
+      undo: (position) => structure?.history("undo", position) ?? null,
+      redo: (position) => structure?.history("redo", position) ?? null,
     },
   };
-  const graph = state.graph;
-  const build = (
-    parent: string,
-    ancestors: ReadonlySet<string>,
-    path: readonly string[] = [],
-  ): readonly OutlineItemViewModel<null>[] =>
-    (graph?.childOccurrences[parent] ?? []).flatMap((key) => {
-      const occurrence = graph?.occurrences[key];
-      const node = occurrence ? graph?.nodes[occurrence.nodeId] : undefined;
-      if (!node || ancestors.has(node.nodeId) || graph?.systemNodeIds.includes(node.nodeId)) {
-        return [];
-      }
-      const appearance = JSON.stringify([...path, key]);
-      appearances.set(appearance, key);
-      const text = state.drafts.get(node.nodeId)?.text ?? nodeText(node);
-      return [
-        {
-          key: appearance,
-          presentation: null,
-          content: [{ type: "text", text }],
-          accessibilityLabel: text || "Empty node",
-          editable: canEditNode(node),
-          readonlyReason: "Structured content",
-          children: build(node.nodeId, new Set(ancestors).add(node.nodeId), [...path, key]),
+  const fields = projection?.fields;
+  const appearanceCounts = new Map<string, number>();
+  for (const occurrence of Object.values(graph?.occurrences ?? {})) {
+    appearanceCounts.set(occurrence.nodeId, (appearanceCounts.get(occurrence.nodeId) ?? 0) + 1);
+  }
+  const presentation = {
+    resolve: (occurrenceId: string) => {
+      const occurrence = graph?.occurrences[occurrenceId];
+      const nodeId = occurrence?.nodeId ?? "";
+      const reference = occurrence !== undefined && graph?.nodeOwners[nodeId] !== occurrence.parentNodeId;
+      const referenced = (appearanceCounts.get(nodeId) ?? 0) > 1;
+      return {
+        bullet: {
+          action: fields?.get(nodeId)?.fieldDefinitionId ?? nodeId,
+          content: fields?.has(nodeId) ? (
+            <Icon name="list-tree" className="size-3.5" />
+          ) : (
+            <OutlineBullet frame={reference ? "dashed" : "none"} halo={!reference && referenced ? "muted" : "none"}>
+              <OutlineBulletDot />
+            </OutlineBullet>
+          ),
         },
-      ];
-    });
+        childrenLayout: fields?.has(nodeId) ? ("beside" as const) : ("indented" as const),
+      };
+    },
+  };
   return (
     <PageScaffold
-      title={workspace.label}
-      actions={
-        <Button disabled={graph === null} onClick={() => controller.create()}>
-          Add node
-        </Button>
-      }
+      layout="document"
+      title={rootNodeId && graph?.nodes[rootNodeId] ? nodeLabel(graph.nodes[rootNodeId], graph) : workspace.label}
     >
-      <p className="mb-4 text-caption text-muted-foreground" role="status">
+      {rootNodeId ? (
+        <Breadcrumbs
+          items={[
+            { label: workspace.label, onSelect: () => onNavigate(workspace.workspaceId) },
+            { label: graph?.nodes[rootNodeId] ? nodeLabel(graph.nodes[rootNodeId], graph) : "Node" },
+          ]}
+        />
+      ) : null}
+      <p className="sr-only" role="status">
         {state.pending > 0 ? "Saving…" : state.drafts.size > 0 ? "Unsaved changes" : "Saved locally"}
       </p>
       {state.error === null ? null : (
         <Alert tone="destructive">
           {state.error}
           <Button variant="ghost" onClick={controller.retry}>
-            Retry
+            {state.drafts.size > 0 ? "Retry save" : "Reload"}
           </Button>
           {state.drafts.size === 0 ? null : (
             <Button
@@ -143,8 +165,9 @@ export function WorkspacePage({ host, workspace, actorId }: Props) {
         <Spinner label="Loading workspace" />
       ) : (
         <OutlineTree
+          selectionToolbar
           key={editorRevision}
-          items={build(graph.rootNodeId, new Set([graph.rootNodeId]))}
+          items={projection?.items ?? []}
           label="Workspace nodes"
           expandedKeys={expanded}
           onExpandedChange={(key, value) =>
@@ -159,6 +182,11 @@ export function WorkspacePage({ host, workspace, actorId }: Props) {
             })
           }
           presentation={presentation}
+          onPresentationAction={(_key, nodeId) => onNavigate(nodeId)}
+          inlineExtensions={workspaceExtensions(onNavigate)}
+          commands={completion.commands}
+          onMove={structure?.move}
+          onDeleteSelection={structure?.remove}
           editing={editing}
         />
       )}

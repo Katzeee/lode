@@ -35,6 +35,7 @@ export type OutlineCompletionProvider = Readonly<{
 }>;
 
 export type OutlineTreeEditing = Readonly<{
+  focusRequest?: OutlineEditPosition;
   history?: OutlineEditHistory;
   onCopy?: (keys: readonly string[]) => readonly OutlineClipboardItem[];
   onPaste?: (key: string | null, paste: OutlinePaste) => OutlineEditPosition | null;
@@ -54,6 +55,7 @@ export type OutlineTreeEditing = Readonly<{
   onCreateAfter: (key: string) => void;
   /** Inserts the first child, including when existing children are expanded. */
   onCreateChild?: (key: string) => void;
+  onClearAppearance?: (key: string) => OutlineEditPosition | null;
   onDeleteEmpty: (key: string) => void;
   onMerge?: (merge: OutlineMerge) => void;
   onSplit: (key: string, before: OutlineContent, after: OutlineContent, placement: "after" | "child") => void;
@@ -106,8 +108,18 @@ export type OutlineEditorBinding = Readonly<{
 
 export type OutlineEditHistory = Readonly<{
   checkpoint: (position: OutlineEditPosition | null, group: "typing" | "operation") => void;
-  undo: (position: OutlineEditPosition | null) => Readonly<{ position: OutlineEditPosition | null }> | null;
-  redo: (position: OutlineEditPosition | null) => Readonly<{ position: OutlineEditPosition | null }> | null;
+  undo: (
+    position: OutlineEditPosition | null,
+  ) =>
+    | Readonly<{ position: OutlineEditPosition | null }>
+    | null
+    | Promise<Readonly<{ position: OutlineEditPosition | null }> | null>;
+  redo: (
+    position: OutlineEditPosition | null,
+  ) =>
+    | Readonly<{ position: OutlineEditPosition | null }>
+    | null
+    | Promise<Readonly<{ position: OutlineEditPosition | null }> | null>;
 }>;
 
 export type OutlineClipboardItem = Readonly<{

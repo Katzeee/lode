@@ -1,3 +1,4 @@
+import { sourceSelection } from "./outline-caret.js";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { contentLength, type OutlineContent } from "./outline-content.js";
 import {
@@ -17,11 +18,19 @@ type SessionOptions = Readonly<{
   containerRef: RefObject<HTMLDivElement | null>;
   editing?: OutlineTreeEditing;
   onCursorChange: (key: string) => void;
+  onTextInput: () => void;
   rows: readonly OutlineRowViewModel[];
   scrollToKey: (key: string) => void;
 }>;
 
-export function useOutlineEditSession({ containerRef, editing, onCursorChange, rows, scrollToKey }: SessionOptions) {
+export function useOutlineEditSession({
+  containerRef,
+  editing,
+  onCursorChange,
+  onTextInput,
+  rows,
+  scrollToKey,
+}: SessionOptions) {
   const [session, setSessionState] = useState<EditSession | null>(null);
   const [pending, setPending] = useState<PendingActivation | null>(null);
   const lastPositionRef = useRef<OutlineEditPosition | null>(null);
@@ -63,7 +72,10 @@ export function useOutlineEditSession({ containerRef, editing, onCursorChange, r
     const row = rows.find((candidate) => candidate.key === position.key);
     const activeEditing = editingRef.current;
     if (row !== undefined && activeEditing !== undefined) {
-      if (row.item.editable === false) {
+      if (
+        row.item.editable === false ||
+        (row.item.activation === "object" && sessionRef.current?.key !== row.key && predictedContent === undefined)
+      ) {
         onCursorChange(row.key);
         scrollToKey(row.key);
         setSession(null);
@@ -73,6 +85,12 @@ export function useOutlineEditSession({ containerRef, editing, onCursorChange, r
       activate(row, predictedContent ?? row.item.content, position.caret, position.selectionEnd);
     }
   };
+
+  useLayoutEffect(() => {
+    if (editing?.focusRequest !== undefined) {
+      setPending({ type: "position", position: editing.focusRequest });
+    }
+  }, [editing?.focusRequest]);
 
   // The inserted row must take over the editor in the same paint that reveals
   // it; a passive effect would leave the editor on the old row for a frame.
@@ -90,6 +108,11 @@ export function useOutlineEditSession({ containerRef, editing, onCursorChange, r
     desiredSelectionEndRef.current = position.selectionEnd ?? position.caret;
     onCursorChange(row.key);
     scrollToKey(row.key);
+    if (position.editing === false || row.item.editable === false) {
+      setSession(null);
+      containerRef.current?.focus({ preventScroll: true });
+      return;
+    }
     setSession({
       ariaLabel: `Edit ${row.item.accessibilityLabel}`,
       content: row.item.content,
@@ -114,7 +137,49 @@ export function useOutlineEditSession({ containerRef, editing, onCursorChange, r
     setSession(null);
   }, []);
 
+  const getPosition = () => {
+    const element = containerRef.current?.querySelector<HTMLElement>('[data-ui="outline-editor"]');
+    const current = sessionRef.current;
+    const selection =
+      element && current?.key === element.closest<HTMLElement>('[data-ui="outline-row"]')?.dataset.itemKey
+        ? sourceSelection(element)
+        : null;
+    if (selection && current) {
+      lastPositionRef.current = { key: current.key, caret: selection.from, selectionEnd: selection.to };
+    }
+    return lastPositionRef.current;
+  };
+
+  const history = (direction: "undo" | "redo") => {
+    const capability = editingRef.current?.history;
+    if (capability === undefined) {
+      return false;
+    }
+    const result = capability[direction](getPosition());
+    const finish = (result: Readonly<{ position: OutlineEditPosition | null }> | null) => {
+      if (result !== null) {
+        onTextInput();
+        const position = result.position;
+        if (position !== null) {
+          setPending({ type: "position", position });
+        } else {
+          setPending(null);
+          setSession(null);
+          containerRef.current?.focus({ preventScroll: true });
+        }
+      }
+    };
+    if (result !== null && "then" in result) {
+      void result.then(finish, () => undefined);
+    } else {
+      finish(result);
+    }
+    return true;
+  };
+
   return {
+    getPosition,
+    history,
     session,
     sessionRef,
     editingRef,

@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 
+import { Menu } from "@base-ui/react/menu";
+import { menuItemClassName, menuPopupClassName } from "../dropdown-menu.js";
 import { cn } from "../cn.js";
 import { Icon } from "../icon.js";
 import type { OutlineHostCommand } from "./outline-commands.js";
@@ -43,7 +45,7 @@ export function OutlineSelectionToolbar({
       const row = anchor.getBoundingClientRect();
       const height = toolbar.offsetHeight;
       const width = toolbar.offsetWidth;
-      const left = Math.max(8, Math.min(row.left + 22, globalThis.innerWidth - width - 8));
+      const left = Math.max(8, Math.min(row.left - 1.5, globalThis.innerWidth - width - 8));
       const top = Math.max(8, Math.min(row.top - height - 6, globalThis.innerHeight - height - 8));
       toolbar.style.left = `${String(left - tree.left)}px`;
       toolbar.style.top = `${String(top - tree.top)}px`;
@@ -65,13 +67,23 @@ export function OutlineSelectionToolbar({
   return (
     <div
       aria-label={`${String(count)} items selected`}
-      className="absolute z-20 flex max-w-full flex-wrap items-center gap-0.5 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
+      className="absolute z-20 flex max-w-full flex-wrap items-center gap-0.5 rounded-sm border border-border bg-popover p-0.5 text-popover-foreground shadow-md"
       data-ui="outline-selection-toolbar"
       onClick={(event) => event.stopPropagation()}
       role="toolbar"
       ref={toolbarRef}
     >
-      <span className="px-2 text-caption font-medium tabular-nums">{String(count)} selected</span>
+      {onMove === undefined ? null : (
+        <button
+          type="button"
+          aria-label="Indent selected nodes"
+          className={actionClass}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onMove("indent")}
+        >
+          <Icon name="indent-increase" size="sm" />
+        </button>
+      )}
       {commands?.map((command) => (
         <button
           key={command.id}
@@ -83,46 +95,45 @@ export function OutlineSelectionToolbar({
           {command.label}
         </button>
       ))}
-      {onMove === undefined ? null : (
-        <>
-          <button
-            aria-label="Outdent selected items"
-            className={actionClass}
-            onClick={() => onMove("outdent")}
-            type="button"
-          >
-            ←
-          </button>
-          <button
-            aria-label="Indent selected items"
-            className={actionClass}
-            onClick={() => onMove("indent")}
-            type="button"
-          >
-            →
-          </button>
-          <button
-            aria-label="Move selected items up"
-            className={actionClass}
-            onClick={() => onMove("reorder-up")}
-            type="button"
-          >
-            ↑
-          </button>
-          <button
-            aria-label="Move selected items down"
-            className={actionClass}
-            onClick={() => onMove("reorder-down")}
-            type="button"
-          >
-            ↓
-          </button>
-        </>
-      )}
-      {onDelete === undefined ? null : (
-        <button aria-label="Delete selected items" className={actionClass} onClick={onDelete} type="button">
-          <Icon className="size-3.5" name="trash" />
-        </button>
+      {onMove === undefined && onDelete === undefined ? null : (
+        <Menu.Root>
+          <Menu.Trigger className={actionClass} aria-label="More commands">
+            <Icon name="ellipsis" size="sm" />
+          </Menu.Trigger>
+          <Menu.Portal>
+            <Menu.Positioner sideOffset={4} className="z-50">
+              <Menu.Popup
+                data-outline-owner={containerRef.current?.id}
+                className={menuPopupClassName}
+                finalFocus={containerRef}
+              >
+                {onMove === undefined
+                  ? null
+                  : (
+                      [
+                        ["indent", "Indent"],
+                        ["outdent", "Outdent"],
+                        ["reorder-up", "Move up"],
+                        ["reorder-down", "Move down"],
+                      ] as const
+                    ).map(([operation, label]) => (
+                      <Menu.Item
+                        key={operation}
+                        className={menuItemClassName("default")}
+                        onClick={() => onMove(operation)}
+                      >
+                        {label}
+                      </Menu.Item>
+                    ))}
+                {onDelete === undefined ? null : (
+                  <Menu.Item className={menuItemClassName("destructive")} onClick={onDelete}>
+                    Delete
+                  </Menu.Item>
+                )}
+              </Menu.Popup>
+            </Menu.Positioner>
+          </Menu.Portal>
+        </Menu.Root>
       )}
     </div>
   );
@@ -146,11 +157,14 @@ export function OutlineRowControls({
   row: OutlineRowViewModel;
 }>) {
   return (
-    <span className="flex shrink-0 items-center gap-0.5 py-0.5">
+    <span
+      className="relative flex shrink-0 items-center"
+      style={{ width: "var(--lode-outline-bullet)", height: "1lh" }}
+    >
       <button
         aria-label={row.expanded ? `Collapse ${row.item.accessibilityLabel}` : `Expand ${row.item.accessibilityLabel}`}
         className={cn(
-          "grid size-5 place-items-center rounded-sm text-muted-foreground/70 outline-none transition-[opacity,color,background-color] hover:bg-accent hover:text-accent-foreground hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/45 group-hover/outline-row:opacity-100",
+          "absolute -left-5 grid size-5 place-items-center rounded-sm text-muted-foreground/70 outline-none transition-[opacity,color,background-color] hover:bg-accent hover:text-accent-foreground hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/45 group-hover/outline-row:opacity-100",
           row.expanded ? "opacity-50" : "opacity-0",
           !row.expandable && "invisible",
         )}
@@ -171,7 +185,7 @@ export function OutlineRowControls({
         <span
           aria-hidden
           className={cn(
-            "grid size-5 place-items-center rounded-full",
+            "grid h-lh w-full place-items-center rounded-full",
             draggable && "cursor-grab touch-none active:cursor-grabbing",
           )}
           data-ui="outline-bullet"
@@ -183,7 +197,7 @@ export function OutlineRowControls({
         <button
           aria-label={bullet.accessibilityLabel ?? `Activate ${row.item.accessibilityLabel}`}
           className={cn(
-            "grid size-5 cursor-pointer place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/45",
+            "grid h-lh w-full cursor-pointer place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/45",
             draggable && "touch-none active:cursor-grabbing",
           )}
           data-ui="outline-bullet"

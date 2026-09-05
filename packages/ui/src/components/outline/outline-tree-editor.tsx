@@ -3,6 +3,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { contentLength, contentToDoc, docToContent, type OutlineContent } from "./outline-content.js";
+import { sourceSelection } from "./outline-caret.js";
 import { outlineEditorDocument } from "./outline-editor-document.js";
 import { OutlineSourceContent, useOutlineInlineExtensions } from "./outline-source-content.js";
 import type { OutlineSourceEdit } from "./outline-inline-extension.js";
@@ -37,7 +38,7 @@ export function OutlineInlineContent({ content }: Readonly<{ content: OutlineCon
     return <OutlineTreeEditor binding={binding} />;
   }
   return (
-    <span className="inline-block min-h-5.5 whitespace-pre-wrap break-words align-top" data-ui="outline-inline-content">
+    <span className="inline-block min-h-lh whitespace-pre-wrap break-words align-top" data-ui="outline-inline-content">
       {content.length === 0 && placeholder.length > 0 ? (
         <span className="select-none text-muted-foreground" data-ui="outline-placeholder">
           {placeholder}
@@ -54,10 +55,12 @@ function currentContent(editor: Editor): OutlineContent {
 }
 
 function selectionOffsets(editor: Editor): Readonly<{ from: number; to: number }> {
-  return {
-    from: Math.max(0, editor.state.selection.from - 1),
-    to: Math.max(0, editor.state.selection.to - 1),
-  };
+  return (
+    sourceSelection(editor.view.dom) ?? {
+      from: Math.max(0, editor.state.selection.from - 1),
+      to: Math.max(0, editor.state.selection.to - 1),
+    }
+  );
 }
 
 function editorCommand(editor: Editor, event: KeyboardEvent): OutlineEditorCommand | null {
@@ -274,7 +277,8 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
         "aria-haspopup": "listbox",
         "aria-multiline": "true",
         role: "textbox",
-        class: "inline-block w-max max-w-full whitespace-pre-wrap break-words text-body text-current outline-none",
+        class:
+          "inline-block w-max max-w-full whitespace-pre-wrap break-words text-document-body text-current outline-none",
         "data-ui": "outline-editor",
       },
       handleDOMEvents: {
@@ -439,7 +443,7 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
         {empty ? (
           <span
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 truncate whitespace-nowrap text-body text-muted-foreground"
+            className="pointer-events-none absolute inset-x-0 top-0 truncate whitespace-nowrap text-document-body text-muted-foreground"
             data-ui="outline-placeholder"
           >
             {binding.placeholder}

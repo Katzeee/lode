@@ -2,7 +2,7 @@ import { assertJsonValue, exact, object, ShapeValidationError } from "../../deco
 import { atomProducer } from "./action-contribution-helpers.js";
 import { defineAction, defineActionFamily, field, optionalField } from "./action-definition.js";
 import { arrayField, nonemptyStringField, sequenceAnchorField, stringField } from "./action-field-decoders.js";
-import type { JsonValue, PreviousValue, SequenceAnchor, TextAtomId } from "./fact-value-types.js";
+import type { JsonValue, PreviousValue, TextAtomId } from "./fact-value-types.js";
 import { parseJsonRecord, parseTextAtomId } from "./serialized-shape.js";
 
 const textAtomIdsField = arrayField<TextAtomId>((value) => parseTextAtomId(value), { kind: "string-list" });
@@ -25,20 +25,6 @@ const previousValueField = field<PreviousValue>(
   { kind: "message", message: "PreviousValue" },
 );
 
-const textSequenceAnchorField = field<SequenceAnchor>(
-  (value, label) => {
-    const anchor = sequenceAnchorField.parse(value, label);
-    if (anchor.after !== null) {
-      parseTextAtomId(anchor.after);
-    }
-    if (anchor.before !== null) {
-      parseTextAtomId(anchor.before);
-    }
-    return anchor;
-  },
-  { kind: "message", message: "SequenceAnchor" },
-);
-
 export const textActionDefinitions = defineActionFamily({
   splice: defineAction(
     "rich-text-splice",
@@ -47,7 +33,7 @@ export const textActionDefinitions = defineActionFamily({
     {
       nodeId: nonemptyStringField,
       deleteAtomIds: textAtomIdsField,
-      anchor: textSequenceAnchorField,
+      anchor: sequenceAnchorField,
       insert: stringField,
       attributes: optionalField(attributesField),
     },

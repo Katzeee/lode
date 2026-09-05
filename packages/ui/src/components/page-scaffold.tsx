@@ -7,22 +7,26 @@ export function PageScaffold({
   description,
   eyebrow,
   title,
+  layout = "standard",
 }: Readonly<{
   actions?: ReactNode;
   children: ReactNode;
   description?: string;
   eyebrow?: string;
   title: string;
+  layout?: "standard" | "document";
 }>) {
   return (
     <main
       className="mx-auto w-full py-8 @3xl/app-shell:py-12"
       style={{
-        maxWidth: tokens.layout.content.standard,
+        maxWidth: layout === "document" ? tokens.layout.content.document : tokens.layout.content.standard,
         paddingInline: tokens.layout["safe-area"].minimum,
       }}
     >
-      <header className="flex flex-wrap items-end justify-between gap-5 border-b border-border pb-7">
+      <header
+        className={`flex flex-wrap items-end justify-between gap-5 ${layout === "document" ? "" : "border-b border-border pb-7"}`}
+      >
         <div className="min-w-0">
           {eyebrow === undefined ? null : (
             <p className="mb-2 text-caption font-semibold tracking-widest text-primary uppercase">{eyebrow}</p>
@@ -34,7 +38,7 @@ export function PageScaffold({
         </div>
         {actions === undefined ? null : <div className="flex items-center gap-2">{actions}</div>}
       </header>
-      <div className="pt-8">{children}</div>
+      <div className={layout === "document" ? "pt-4" : "pt-8"}>{children}</div>
     </main>
   );
 }

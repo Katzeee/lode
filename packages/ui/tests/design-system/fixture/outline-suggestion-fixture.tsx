@@ -20,6 +20,7 @@ export function OutlineSuggestionFixture() {
         Refresh suggestions
       </button>
       <OutlineTree
+        selectionToolbar
         expandedKeys={new Set()}
         items={[{ accessibilityLabel: "Suggestion input", content, key: "input", presentation: null }]}
         label="Suggestion fixture"

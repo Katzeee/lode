@@ -12,7 +12,8 @@ export function OutlineEmptyChild({
   return (
     <button
       aria-label={parentKey === null ? "Create node" : `Create child under ${parentLabel}`}
-      className="group/outline-row flex min-h-8 w-full min-w-0 items-start gap-1 rounded-md bg-transparent py-1 pr-1.5 text-left outline-none transition-colors hover:bg-accent/35 focus-visible:ring-2 focus-visible:ring-ring/45"
+      className="group/outline-row flex text-document-body min-h-7 w-full min-w-0 items-start rounded-selection bg-transparent pr-1.5 text-left outline-none transition-colors hover:bg-accent/35 focus-visible:ring-2 focus-visible:ring-ring/45"
+      style={{ gap: "var(--lode-outline-gap)", paddingBlock: "var(--lode-outline-row-padding)" }}
       data-parent-key={parentKey ?? undefined}
       data-ui="outline-empty-child-placeholder"
       onClick={onActivate}
@@ -20,16 +21,18 @@ export function OutlineEmptyChild({
       tabIndex={-1}
       type="button"
     >
-      <span className="flex shrink-0 items-center gap-0.5 py-0.5">
-        <span aria-hidden className="size-5" />
-        <span className="grid size-5 place-items-center rounded-full transition-colors group-hover/outline-row:bg-secondary">
+      <span className="flex shrink-0 items-center">
+        <span
+          style={{ width: "var(--lode-outline-bullet)", height: "1lh" }}
+          className="grid place-items-center rounded-full transition-colors group-hover/outline-row:bg-secondary"
+        >
           <OutlineBullet>
             <OutlineBulletDot quiet />
           </OutlineBullet>
         </span>
       </span>
-      <span aria-hidden className="min-w-0 flex-1 py-0.5">
-        <span className="block min-h-5.5" />
+      <span aria-hidden className="min-w-0 flex-1">
+        <span className="block min-h-lh" />
       </span>
     </button>
   );

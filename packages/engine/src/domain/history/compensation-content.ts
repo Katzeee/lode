@@ -1,3 +1,4 @@
+import { restoreSeparatedText, textGroups } from "./separated-text-restoration.js";
 import {
   canonicalJson,
   compareCausalOrder,
@@ -77,12 +78,22 @@ function compensateTextSplice(
   if (inserted.length === 0 && deletedStillAbsent.length === 0) {
     return noCompensation();
   }
+  const separated = restoreSeparatedText(
+    authoredAction.nodeId,
+    deletedStillAbsent,
+    counterfactual.nodes[authoredAction.nodeId]?.content ?? [],
+    content,
+    inserted,
+  );
+  if (separated !== null) {
+    return separated;
+  }
   const anchor = currentTextAnchor(
     authoredAction.anchor,
     inserted.map((atom) => atom.id),
     content,
   );
-  const groups = restoreGroups(deletedStillAbsent);
+  const groups = textGroups(deletedStillAbsent);
   const orderedGroups = anchorPrepends(anchor, content) ? [...groups].reverse() : groups;
   if (orderedGroups.length === 0) {
     orderedGroups.push({ text: "", attributes: {} });
@@ -124,21 +135,6 @@ function currentTextAnchor(
     affinity: original.affinity,
     fallback: original.fallback,
   };
-}
-
-function restoreGroups(
-  atoms: readonly Readonly<{ value: string; attributes: Readonly<Record<string, JsonValue>> }>[],
-): Readonly<{ text: string; attributes: Readonly<Record<string, JsonValue>> }>[] {
-  const groups: { text: string; attributes: Readonly<Record<string, JsonValue>> }[] = [];
-  for (const atom of atoms) {
-    const current = groups.at(-1);
-    if (current && canonicalJson(current.attributes) === canonicalJson(atom.attributes)) {
-      current.text += atom.value;
-    } else {
-      groups.push({ text: atom.value, attributes: atom.attributes });
-    }
-  }
-  return groups;
 }
 
 function anchorPrepends(

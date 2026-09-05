@@ -48,7 +48,7 @@ try {
   await page.getByLabel("Workspace name", { exact: true }).fill("Mobile workspace");
   await page.getByRole("button", { name: "Create workspace", exact: true }).click();
   await page.getByRole("heading", { name: "Mobile workspace", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Add node", exact: true }).click();
+  await page.getByRole("button", { name: "Create node", exact: true }).click();
   await page.locator('[data-ui="outline-row-text"]').first().click();
   await page.locator('[data-ui="outline-editor"]').pressSequentially("Mobile persistent note");
   adb("shell", "input", "keyevent", "4");

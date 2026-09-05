@@ -108,7 +108,9 @@ async function verifyOutlinePresentation(page) {
     "the Owner Field must present Kei and Lode team as its two Value occurrences",
   );
   assert.equal(
-    await rowByPath("projects/lode/owner-field").locator("..").getAttribute("data-children-layout"),
+    await rowByPath("projects/lode/owner-field")
+      .locator('xpath=ancestor::*[@data-ui="outline-node"][1]')
+      .getAttribute("data-children-layout"),
     "beside",
     "a Field node must place its children beside its label",
   );
@@ -726,7 +728,10 @@ async function verifyOutlineEditing(page) {
   await page.getByRole("tree").focus();
   await page.keyboard.press("End");
   const createdField = page
-    .locator('[data-ui="outline-node"][data-children-layout="beside"] > [data-ui="outline-row"]', { hasText: "Notes" })
+    .locator(
+      '[data-ui="outline-node"][data-children-layout="beside"] > .lode-outline-layout > [data-ui="outline-row"]',
+      { hasText: "Notes" },
+    )
     .first();
   await createdField.waitFor({ state: "visible" });
   const createdRows = await page
@@ -835,7 +840,7 @@ async function outlineDragContext(page) {
     await navigateToCatalogPage(page, "components/outline");
     await tree.waitFor({ state: "visible" });
   };
-  const nodeOf = (row) => row.locator("..");
+  const nodeOf = (row) => row.locator('xpath=ancestor::*[@data-ui="outline-node"][1]');
   return { drag, itemKey, nodeOf, reset, rowByPath, tree };
 }
 

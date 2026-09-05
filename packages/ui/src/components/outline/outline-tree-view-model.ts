@@ -6,6 +6,9 @@ export type OutlineItemViewModel<Presentation = unknown> = Readonly<{
   children?: readonly OutlineItemViewModel<Presentation>[];
   content: OutlineContent;
   editable?: boolean;
+  /** Object appearances activate their content editor explicitly, using the same editing session. */
+  activation?: "text" | "object";
+  mergeable?: boolean;
   /** The host explains why this name cannot be edited here. */
   readonlyReason?: string;
   /** Controls whether this item exposes a disclosure affordance; false keeps existing children visible. */
@@ -44,6 +47,7 @@ export type OutlineMerge = Readonly<{
 }>;
 
 export type OutlineEditPosition = Readonly<{
+  editing?: boolean;
   caret: number;
   key: string;
   selectionEnd?: number;
@@ -207,15 +211,27 @@ export function computeEditMergeTarget(
   key: string,
   currentContent: OutlineContent,
 ): OutlineEditMergeTarget | null {
-  if (rowByKey(rows, key)?.hasChildren === true) {
+  const source = rowByKey(rows, key);
+  if (!source || source.hasChildren || source.item.mergeable === false || source.item.activation === "object") {
     return null;
   }
-  const position = computeEditNavigation(rows, key, -1, "end");
-  const target = position === null ? undefined : rowByKey(rows, position.key);
-  if (position === null || target === undefined) {
+  const target =
+    source.indexInParent > 0
+      ? rows.find((row) => row.parentKey === source.parentKey && row.indexInParent === source.indexInParent - 1)
+      : rows.find((row) => row.key === source.parentKey);
+  if (
+    !target ||
+    target.item.editable === false ||
+    target.item.mergeable === false ||
+    target.item.activation === "object"
+  ) {
     return null;
   }
-  return { ...position, content: mergeContent(target.item.content, currentContent) };
+  return {
+    key: target.key,
+    caret: contentLength(target.item.content),
+    content: mergeContent(target.item.content, currentContent),
+  };
 }
 
 export function computeEditInsertion(

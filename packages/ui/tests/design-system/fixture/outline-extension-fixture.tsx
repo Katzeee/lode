@@ -15,6 +15,7 @@ export function OutlineExtensionFixture({ commandsEnabled = false }: Readonly<{ 
   return (
     <main>
       <OutlineTree
+        selectionToolbar
         commands={
           commandsEnabled
             ? ["run", "focus"].map((id) => ({

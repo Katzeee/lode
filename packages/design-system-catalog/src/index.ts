@@ -24,6 +24,7 @@ export const iconNames = [
   "layers",
   "layout-template",
   "list-tree",
+  "indent-increase",
   "menu",
   "messages-square",
   "moon",

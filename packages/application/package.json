@@ -24,12 +24,13 @@
   "dependencies": {
     "@lode/sdk": "file:../sdk",
     "@lode/ui": "file:../ui",
+    "diff": "^9.0.0",
     "react": "19.2.3"
   },
   "devDependencies": {
+    "@lode/engine-platform-desktop": "file:../engine-platform-desktop",
     "@types/react": "^19.2.18",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9",
-    "@lode/engine-platform-desktop": "file:../engine-platform-desktop"
+    "vitest": "^4.1.9"
   }
 }

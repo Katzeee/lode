@@ -5,7 +5,7 @@ const row = (page, path) =>
   page.locator(`[data-ui="outline-row"][data-item-key="outline-item:${encodeURIComponent(path)}"]`);
 const selected = (page) => page.locator('[data-ui="outline-row"][aria-selected="true"]');
 const editor = (page) => page.locator('[data-ui="outline-editor"]');
-const node = (row) => row.locator("..");
+const node = (row) => row.locator('xpath=ancestor::*[@data-ui="outline-node"][1]');
 
 designSystemTest("Selecting an outline parent covers its subtree with one continuous surface", async (page) => {
   await navigateToCatalogPage(page, "components/outline");
@@ -25,14 +25,14 @@ designSystemTest("Selecting an outline parent covers its subtree with one contin
   );
   assert.equal(await subtree.getAttribute("data-selection-root"), "true");
   const styles = await parent.evaluate((element) => ({
-    surface: getComputedStyle(element.parentElement, "::before").backgroundColor,
+    surface: getComputedStyle(element.closest('[data-ui="outline-node"]'), "::before").backgroundColor,
     frame: getComputedStyle(element, "::after").boxShadow,
     inset: getComputedStyle(element, "::after").left,
     background: getComputedStyle(element).backgroundColor,
   }));
   assert.notEqual(styles.surface, "rgba(0, 0, 0, 0)");
   assert.notEqual(styles.frame, "none");
-  assert.equal(styles.inset, "22px", "disclosure stays outside the name frame");
+  assert.equal(styles.inset, "-1.5px", "the frame includes the bullet while disclosure stays outside");
   assert.equal(styles.background, "rgba(0, 0, 0, 0)");
   assert.deepEqual(await subtree.boundingBox(), before, "selecting a parent does not change its geometry");
   const toolbar = page.getByRole("toolbar", { name: "1 items selected" });

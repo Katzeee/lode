@@ -7,8 +7,6 @@ import type { OutlineEditorBinding, OutlineTreeEditing } from "./outline-tree-ed
 import { OutlineTreeRow } from "./outline-tree-row.js";
 import type { OutlineItemViewModel, OutlineMove, OutlineRowViewModel } from "./outline-tree-view-model.js";
 
-const OUTLINE_COLUMN_TEMPLATE = "min(16rem, 42%) minmax(0, 1fr)";
-
 /** Per-tree state and intents shared by every node; nodes only add their own row identity. */
 export type OutlineNodeEnvironment = Readonly<{
   consumeDragClick: () => boolean;
@@ -69,7 +67,8 @@ export function OutlineChildren({
   }
   return (
     <div
-      className={cn("min-w-0", parent !== null && !beside && "relative pl-5")}
+      className={cn("min-w-0", parent !== null && !beside && "relative")}
+      style={parent !== null && !beside ? { paddingInlineStart: "var(--lode-outline-indent)" } : undefined}
       data-parent-key={parentKey ?? undefined}
       data-ui="outline-children"
       role={parent === null ? undefined : "group"}
@@ -106,31 +105,38 @@ function OutlineNode({ item }: Readonly<{ item: OutlineItemViewModel }>) {
   const beside = presentation.childrenLayout === "beside";
   return (
     <div
-      className={cn("relative min-w-0", beside && "grid items-start")}
+      className="relative min-w-0 @container/outline-node"
       data-selection-root={environment.selectionRootKeys.has(row.key) ? "true" : undefined}
       data-children-layout={beside ? "beside" : "indented"}
       data-ui="outline-node"
-      style={beside ? { gridTemplateColumns: OUTLINE_COLUMN_TEMPLATE } : undefined}
     >
-      <OutlineTreeRow
-        consumeDragClick={environment.consumeDragClick}
-        cursor={row.key === environment.focusKey}
-        draggable={environment.draggable}
-        dragged={environment.draggedKeys.includes(row.key)}
-        editActiveKey={environment.editActiveKey}
-        editBinding={environment.editBinding}
-        editing={environment.editing}
-        onCommitAndExit={environment.onCommitAndExit}
-        onExpandedChange={environment.onExpandedChange}
-        onPointerDown={environment.onPointerDown(row.key)}
-        onRowMouseDown={environment.onRowMouseDown(row)}
-        row={row}
-        rowDomId={environment.rowDomId(row.key)}
-        presentation={presentation}
-        selected={selected}
-        selectionRoot={environment.selectionRootKeys.has(row.key)}
-      />
-      <OutlineChildren items={item.children ?? []} parent={row} parentPresentation={presentation} />
+      <div
+        className={
+          beside
+            ? "lode-outline-layout grid grid-cols-1 items-start @outline-field/outline-node:grid-cols-[var(--lode-outline-field-column)_minmax(0,1fr)]"
+            : "lode-outline-layout"
+        }
+      >
+        <OutlineTreeRow
+          consumeDragClick={environment.consumeDragClick}
+          cursor={row.key === environment.focusKey}
+          draggable={environment.draggable}
+          dragged={environment.draggedKeys.includes(row.key)}
+          editActiveKey={environment.editActiveKey}
+          editBinding={environment.editBinding}
+          editing={environment.editing}
+          onCommitAndExit={environment.onCommitAndExit}
+          onExpandedChange={environment.onExpandedChange}
+          onPointerDown={environment.onPointerDown(row.key)}
+          onRowMouseDown={environment.onRowMouseDown(row)}
+          row={row}
+          rowDomId={environment.rowDomId(row.key)}
+          presentation={presentation}
+          selected={selected}
+          selectionRoot={environment.selectionRootKeys.has(row.key)}
+        />
+        <OutlineChildren items={item.children ?? []} parent={row} parentPresentation={presentation} />
+      </div>
     </div>
   );
 }

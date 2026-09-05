@@ -56,18 +56,23 @@
 @layer components {
   /* Selection covers the subtree once; only its selected root receives a name frame. */
   [data-ui="outline-node"][data-selection-root="true"]::before {
-    @apply pointer-events-none absolute inset-y-1 left-5.5 right-0 rounded-sm bg-primary/12;
+    @apply pointer-events-none absolute inset-y-1 -left-[1.5px] right-0 rounded-selection bg-primary/12;
     content: "";
   }
 
   [data-selection-root-row="true"]::after,
   [data-ui="outline-node"][data-selection-root="true"][data-children-layout="beside"]::after {
-    @apply pointer-events-none absolute inset-y-1 left-5.5 right-0 rounded-sm ring-1 ring-inset ring-primary/40;
+    @apply pointer-events-none absolute inset-y-1 -left-[1.5px] right-0 rounded-selection ring-1 ring-inset ring-primary/40;
     content: "";
   }
 
-  [data-ui="outline-node"][data-children-layout="beside"] > [data-selection-root-row="true"]::after {
+  [data-ui="outline-node"][data-children-layout="beside"] > .lode-outline-layout > [data-selection-root-row="true"]::after {
     content: none;
+  }
+
+  [data-ui="outline-row"][data-object-focused="true"]:not([data-selected="true"])::after {
+    @apply pointer-events-none absolute inset-y-1 -left-[1.5px] right-0 rounded-selection ring-1 ring-inset ring-primary/25;
+    content: "";
   }
 
   /* Native 20px geometry keeps the compact pencil and crossing stroke distinct. */

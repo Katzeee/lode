@@ -18,6 +18,116 @@ import { END_SEQUENCE_ANCHOR as end } from "../../domain/fact/index.js";
 import { nodeAt } from "../../../tests/support/workspace/edit-test-actions.js";
 
 describe("Inline Reference product model", () => {
+  it("restores text on both sides of a reference when undoing one sparse splice", async () => {
+    const workspace = await setup();
+    await createHostAndTarget(workspace);
+    const [a, b] = textAtomIds((await nodes(workspace, "origin")).nodes.host?.content ?? []);
+    expect(
+      (
+        await workspace.execute(
+          command("middle-reference", "setup", [
+            {
+              kind: "inline-reference-create",
+              inlineReferenceId: "middle",
+              hostNodeId: "host",
+              targetNodeId: "target",
+              anchor: { ...end, after: a, before: b },
+            },
+          ]),
+        )
+      ).status,
+    ).toBe("published");
+    const ids = required((await nodes(workspace, "origin")).nodes.host, "host").content.flatMap((item) =>
+      item.kind === "text" ? [item.id] : [],
+    );
+    expect(
+      (
+        await workspace.execute(
+          command("sparse-splice", "sparse", [
+            { kind: "rich-text-splice", nodeId: "host", deleteAtomIds: ids, anchor: end, insert: "replacement" },
+          ]),
+        )
+      ).status,
+    ).toBe("published");
+    const history = await workspace.query({ kind: "history", workspaceId: "workspace", channelId: "sparse" });
+    if (!("undo" in history) || history.undo === null) {
+      throw new Error("Expected an undo selection");
+    }
+    expect(
+      (
+        await workspace.execute({
+          kind: "undo",
+          workspaceId: "workspace",
+          actorId: "actor",
+          invocationId: "undo-sparse",
+          selection: history.undo,
+        })
+      ).status,
+    ).toBe("published");
+    expect(
+      required((await nodes(workspace, "origin")).nodes.host, "host")
+        .content.map((item) => (item.kind === "text" ? item.value : item.id))
+        .join("|"),
+    ).toBe("A|middle|B");
+  });
+  it("anchors text before and after a reference while rejecting a reference from another node", async () => {
+    const workspace = await setup();
+    await createHostAndTarget(workspace);
+    expect(
+      (
+        await workspace.execute(
+          command("reference-anchor", "edit", [
+            {
+              kind: "inline-reference-create",
+              inlineReferenceId: "anchor-reference",
+              hostNodeId: "host",
+              targetNodeId: "target",
+              anchor: end,
+            },
+          ]),
+        )
+      ).status,
+    ).toBe("published");
+    expect(
+      (
+        await workspace.execute(
+          command("text-at-reference", "edit", [
+            {
+              kind: "rich-text-splice",
+              nodeId: "host",
+              deleteAtomIds: [],
+              insert: " before",
+              anchor: { ...end, before: "anchor-reference" },
+            },
+            {
+              kind: "rich-text-splice",
+              nodeId: "host",
+              deleteAtomIds: [],
+              insert: " after",
+              anchor: { ...end, after: "anchor-reference" },
+            },
+          ]),
+        )
+      ).status,
+    ).toBe("published");
+    const content = (await nodes(workspace, "origin")).nodes.host?.content;
+    expect(content?.map((item) => (item.kind === "text" ? item.value : "@")).join("")).toBe("AB before@ after");
+    expect(
+      (
+        await workspace.execute(
+          command("foreign-reference-anchor", "edit", [
+            {
+              kind: "rich-text-splice",
+              nodeId: "target",
+              deleteAtomIds: [],
+              insert: "invalid",
+              anchor: { ...end, before: "anchor-reference" },
+            },
+          ]),
+        )
+      ).status,
+    ).toBe("rejected");
+  });
   it("INLINE-1 keeps one ordered identity and an owned Alias through public Undo and Redo", async () => {
     const workspace = await setup();
     await createHostAndTarget(workspace);

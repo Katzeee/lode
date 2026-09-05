@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { useMemo, useState, type KeyboardEvent, type RefObject } from "react";
 
 import { contentLength } from "./outline-content.js";
 import type { OutlineContent } from "./outline-content.js";
@@ -6,6 +6,7 @@ import { outlineClipboard } from "./outline-clipboard.js";
 import { outlineCommandForKey, outlineCommandDispatcher, type OutlineHostCommand } from "./outline-commands.js";
 import { discloseOutline } from "./outline-edit-intents.js";
 import { handleOutlineNodeKey, type OutlineSelectionOperation } from "./outline-node-keyboard.js";
+import { outlineMovement } from "./outline-movement.js";
 import { useOutlinePointer } from "./outline-pointer.js";
 import {
   emptyOutlineSelection,
@@ -30,7 +31,7 @@ type InteractionOptions = Readonly<{
   editing?: OutlineTreeEditing;
   selection?: OutlineSelection;
   onSelectionChange?: (selection: OutlineSelection) => void;
-  onMove?: (move: OutlineMove) => OutlineMoveResult | null;
+  onMove?: (move: OutlineMove) => OutlineMoveResult | null | Promise<OutlineMoveResult | null>;
   onDeleteSelection?: (keys: readonly string[]) => void;
   onExpandedChange: (key: string, expanded: boolean) => void;
   scrollToKey: (key: string) => void;
@@ -53,38 +54,17 @@ export function useOutlineInteraction(options: InteractionOptions) {
     }
     options.onSelectionChange?.(next);
   };
-  const clearRef = useRef(() => select(emptyOutlineSelection));
-  clearRef.current = () => select(emptyOutlineSelection);
-  useEffect(() => {
-    const outside = (event: globalThis.MouseEvent) => {
-      if (event.target instanceof Node && !containerRef.current?.contains(event.target)) {
-        clearRef.current();
-      }
-    };
-    document.addEventListener("mousedown", outside);
-    return () => document.removeEventListener("mousedown", outside);
-  }, [containerRef]);
-
-  const applyMove = (move: OutlineMove) => {
-    if (onMove === undefined) {
-      return null;
-    }
-    if (move.targetParentKey !== null) {
-      onExpandedChange(move.targetParentKey, true);
-    }
-    const result = onMove(move);
-    if (result !== null) {
-      const remap = (key: string | null) => (key === null ? null : (result.keyMap.get(key) ?? key));
-      edit.remapPosition(result.keyMap);
-      setCursorKey(remap(cursorKey));
-      select({
-        anchorKey: remap(selection.anchorKey),
-        focusKey: remap(selection.focusKey),
-        keys: new Set([...selection.keys].map((key) => result.keyMap.get(key) ?? key)),
-      });
-    }
-    return result;
-  };
+  const applyMove = outlineMovement({
+    onMove,
+    expand: onExpandedChange,
+    selection,
+    cursorKey,
+    select,
+    setCursor: setCursorKey,
+    remap: (mapping) => edit.remapPosition(mapping),
+    position: () => edit.getPosition(),
+    restore: (position) => edit.restore(position),
+  });
   const edit = useOutlineEdit({
     containerRef,
     editing,
@@ -244,9 +224,24 @@ export function useOutlineInteraction(options: InteractionOptions) {
     } else if (event.key === "Enter" && !event.altKey && !modified) {
       if (editing === undefined || cursor.item.editable === false) {
         options.onActivate(cursor);
+      } else if (cursor.item.activation === "object" && !event.shiftKey) {
+        select(emptyOutlineSelection);
+        edit.startAtEnd(cursor);
       } else {
         edit.enterFromSelection(cursor, event.shiftKey ? "after" : undefined);
       }
+    } else if (
+      cursor.item.activation === "object" &&
+      (event.key === "Backspace" || event.key === "Delete") &&
+      !modified &&
+      !event.altKey
+    ) {
+      const position = editing?.onClearAppearance?.(cursor.key);
+      if (position) {
+        edit.restore(position);
+      }
+    } else if (cursor.item.activation === "object" && event.key === " ") {
+      options.onActivate(cursor);
     } else if (!modified && !event.altKey && event.key.startsWith("Arrow")) {
       const direction = event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 1;
       const target = rows[rows.indexOf(cursor) + direction];
@@ -259,7 +254,9 @@ export function useOutlineInteraction(options: InteractionOptions) {
         activate(target, event.key === "Home" ? 0 : contentLength(target.item.content));
       }
     } else if (!modified && !event.altKey && event.key.length === 1) {
-      edit.startAtEnd(cursor, event.key);
+      if (cursor.item.activation !== "object") {
+        edit.startAtEnd(cursor, event.key);
+      }
     } else {
       handled = false;
     }

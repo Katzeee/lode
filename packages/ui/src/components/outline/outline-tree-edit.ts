@@ -58,6 +58,7 @@ export function useOutlineEdit({
 }: EditOptions) {
   const {
     session,
+    getPosition,
     sessionRef,
     editingRef,
     lastPositionRef,
@@ -69,10 +70,12 @@ export function useOutlineEdit({
     activate,
     activatePosition,
     commitAndExit,
+    history,
   } = useOutlineEditSession({
     containerRef,
     editing,
     onCursorChange,
+    onTextInput,
     rows,
     scrollToKey,
   });
@@ -161,6 +164,16 @@ export function useOutlineEdit({
     if (sessionRef.current?.key !== key) {
       return false;
     }
+    const object = rows.find((row) => row.key === key)?.item.activation === "object";
+    if (object && command.type === "enter" && command.placement === undefined) {
+      commit(key, command.content);
+      commitAndExit();
+      containerRef.current?.focus({ preventScroll: true });
+      return true;
+    }
+    if (object && (command.type === "backspace" || command.type === "delete-forward")) {
+      return true;
+    }
     if (command.type === "history") {
       return history(command.direction);
     }
@@ -175,26 +188,6 @@ export function useOutlineEdit({
       return true;
     }
     return command.type === "structure" ? restructure(key, command) : dispatchEditIntent(intentContext(), key, command);
-  };
-
-  const history = (direction: "undo" | "redo") => {
-    const capability = editingRef.current?.history;
-    if (capability === undefined) {
-      return false;
-    }
-    const result = capability[direction](lastPositionRef.current);
-    if (result !== null) {
-      onTextInput();
-      const position = result.position;
-      if (position !== null) {
-        setPending({ type: "position", position });
-      } else {
-        setPending(null);
-        setSession(null);
-        containerRef.current?.focus({ preventScroll: true });
-      }
-    }
-    return true;
   };
 
   const activeRow = session === null ? undefined : rows.find((row) => row.key === session.key);
@@ -274,7 +267,7 @@ export function useOutlineEdit({
     createChild,
     setExpanded,
     history,
-    getPosition: () => lastPositionRef.current,
+    getPosition,
     restore: (position: OutlineEditPosition) => setPending({ type: "position", position }),
     commit: () => {
       const current = sessionRef.current;

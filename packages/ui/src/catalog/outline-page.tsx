@@ -184,6 +184,7 @@ export function OutlinePage() {
           </header>
         )}
         <OutlineTree
+          selectionToolbar
           commands={createDemoTaskCommands(graph, setGraph, modelPath)}
           inlineExtensions={demoInlineExtensions}
           editing={{

@@ -963,6 +963,12 @@
         "value": 999,
         "unit": "px"
       }
+    },
+    "selection": {
+      "$value": {
+        "value": 4,
+        "unit": "px"
+      }
     }
   },
   "font": {
@@ -1025,6 +1031,12 @@
       "display": {
         "$value": {
           "value": 36,
+          "unit": "px"
+        }
+      },
+      "document-body": {
+        "$value": {
+          "value": 15,
           "unit": "px"
         }
       }
@@ -1097,6 +1109,12 @@
       "display": {
         "$value": {
           "value": 44,
+          "unit": "px"
+        }
+      },
+      "document-body": {
+        "$value": {
+          "value": 21,
           "unit": "px"
         }
       }
@@ -1202,6 +1220,12 @@
           "value": 1440,
           "unit": "px"
         }
+      },
+      "document": {
+        "$value": {
+          "value": 800,
+          "unit": "px"
+        }
       }
     },
     "gutter": {
@@ -1251,6 +1275,45 @@
       "minimum": {
         "$value": {
           "value": 16,
+          "unit": "px"
+        }
+      }
+    },
+    "outline": {
+      "$type": "dimension",
+      "indent": {
+        "$value": {
+          "value": 32.25,
+          "unit": "px"
+        }
+      },
+      "bullet": {
+        "$value": {
+          "value": 15,
+          "unit": "px"
+        }
+      },
+      "gap": {
+        "$value": {
+          "value": 7.5,
+          "unit": "px"
+        }
+      },
+      "row-padding": {
+        "$value": {
+          "value": 3.75,
+          "unit": "px"
+        }
+      },
+      "field-column": {
+        "$value": {
+          "value": 201,
+          "unit": "px"
+        }
+      },
+      "field-breakpoint": {
+        "$value": {
+          "value": 424,
           "unit": "px"
         }
       }

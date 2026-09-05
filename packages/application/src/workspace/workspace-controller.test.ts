@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { createDesktopEngine } from "@lode/engine-platform-desktop";
 import { describe, expect, it } from "vitest";
 import { ApplicationSession } from "../session/session.js";
@@ -50,20 +50,20 @@ describe("application lifecycle with a real Engine", () => {
         (item) => item.parentNodeId === graph.rootNodeId && !graph.systemNodeIds.includes(item.nodeId),
       )!;
       expect(occurrence).toBeDefined();
-      controller.stage(occurrence.occurrenceId, "First draft");
+      controller.stageNode(occurrence.nodeId, [{ type: "text", text: "First draft" }]);
       controller.flush();
       controller.flush();
       await controller.whenIdle();
       expect(controller.getSnapshot().error).toBeNull();
       expect(nodeText(controller.getSnapshot().graph!.nodes[occurrence.nodeId]!)).toBe("First draft");
       dropReply = true;
-      controller.stage(occurrence.occurrenceId, "Final note 🌱");
+      controller.stageNode(occurrence.nodeId, [{ type: "text", text: "Final note 🌱" }]);
       controller.flush();
       await controller.whenIdle();
-      controller.history("undo");
+      await controller.history("undo");
       await controller.whenIdle();
       expect(nodeText(controller.getSnapshot().graph!.nodes[occurrence.nodeId]!)).toBe("First draft");
-      controller.history("redo");
+      await controller.history("redo");
       await controller.whenIdle();
       expect(nodeText(controller.getSnapshot().graph!.nodes[occurrence.nodeId]!)).toBe("Final note 🌱");
       stop();
@@ -82,6 +82,9 @@ describe("application lifecycle with a real Engine", () => {
     } finally {
       stop?.();
       await engine.stop();
+      expect(resolve(path).startsWith(resolve(tmpdir()) + sep), "Test data stays inside the temporary directory").toBe(
+        true,
+      );
       await rm(path, { recursive: true, force: true });
     }
   }, 20_000);
@@ -105,7 +108,7 @@ describe("application lifecycle with a real Engine", () => {
       const occurrence = Object.values(graph.occurrences).find(
         (item) => item.parentNodeId === graph.rootNodeId && !graph.systemNodeIds.includes(item.nodeId),
       )!;
-      controller.stage(occurrence.occurrenceId, "Local draft");
+      controller.stageNode(occurrence.nodeId, [{ type: "text", text: "Local draft" }]);
       await session.engine.execute({
         kind: "edit",
         workspaceId,
@@ -125,7 +128,9 @@ describe("application lifecycle with a real Engine", () => {
       });
       controller.flush();
       await controller.whenIdle();
-      expect(controller.getSnapshot().drafts.get(occurrence.nodeId)?.text).toBe("Local draft");
+      expect(controller.getSnapshot().drafts.get(occurrence.nodeId)?.content).toEqual([
+        { type: "text", text: "Local draft" },
+      ]);
       expect(controller.getSnapshot().error).toContain("another client");
       expect(nodeText((await readWorkspace(session.engine, workspaceId)).nodes[occurrence.nodeId]!)).toBe(
         "External note",

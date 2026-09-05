@@ -1,16 +1,19 @@
 import {
-  END_SEQUENCE_ANCHOR,
   type EngineApplicationContract,
   type NodeGraph,
+  type SupertagProjection,
+  type WorkspaceSystemNodeProjection,
+  type FieldProjection,
   type ProjectedNode,
   type ProjectionPage,
   type ProjectionPageSection,
   type ProjectionSections,
-  type TextAtom,
-  type EditAction,
 } from "@lode/sdk";
 
-export type WorkspaceSnapshot = NodeGraph &
+export type WorkspaceSnapshot = Pick<NodeGraph, "nodes" | "occurrences" | "childOccurrences" | "nodeOwners"> &
+  WorkspaceSystemNodeProjection &
+  Pick<SupertagProjection, "supertagApplications" | "templateNodeInstances"> &
+  Pick<FieldProjection, "materializedFields"> &
   Readonly<{ rootNodeId: string; generationId: string; systemNodeIds: readonly string[] }>;
 export async function readWorkspace(
   engine: EngineApplicationContract,
@@ -23,7 +26,9 @@ export async function readWorkspace(
     const read = async <Section extends ProjectionPageSection>(
       section: Section,
     ): Promise<ProjectionSections[Section]> => {
-      const value: Record<string, unknown> = {};
+      const value = Object.create(null) as Record<string, unknown>;
+      const array: unknown[] = [];
+      let arraySection = false;
       let after: string | undefined;
       do {
         const result = await engine.query({
@@ -44,23 +49,35 @@ export async function readWorkspace(
           changed = true;
         }
         generation ??= identity.generationId;
-        Object.assign(value, (page as unknown as Record<string, unknown>)[section]);
+        const payload = (page as unknown as Record<string, unknown>)[section];
+        if (Array.isArray(payload)) {
+          arraySection = true;
+          array.push(...(payload as unknown[]));
+        } else {
+          Object.assign(value, payload);
+        }
         after = page.next ?? undefined;
       } while (after !== undefined);
-      return value as ProjectionSections[Section];
+      return (arraySection ? array : value) as ProjectionSections[Section];
     };
     const nodes = await read("nodes");
     const occurrences = await read("occurrences");
     const childOccurrences = await read("childOccurrences");
     const nodeOwners = await read("nodeOwners");
     const systemNodes = await read("workspaceSystemNodes");
+    const supertagApplications = await read("supertagApplications");
+    const materializedFields = await read("materializedFields");
+    const templateNodeInstances = await read("templateNodeInstances");
     if (!changed && generation !== undefined) {
       return {
         nodes,
+        workspaceSystemNodes: systemNodes,
+        supertagApplications,
+        materializedFields,
+        templateNodeInstances,
         occurrences,
         childOccurrences,
         nodeOwners,
-        metanodes: {},
         rootNodeId,
         generationId: generation,
         systemNodeIds: Object.values(systemNodes).filter((id): id is string => id !== undefined),
@@ -71,39 +88,4 @@ export async function readWorkspace(
 }
 export function nodeText(node: ProjectedNode): string {
   return node.content.map((atom) => (atom.kind === "text" ? atom.value : `@{${atom.targetNodeId}}`)).join("");
-}
-export function canEditNode(node: ProjectedNode): boolean {
-  return (
-    node.intrinsicNodeType === null &&
-    node.content.every((atom) => atom.kind === "text" && Object.keys(atom.attributes).length === 0)
-  );
-}
-export function replaceText(node: ProjectedNode, text: string): readonly EditAction[] {
-  if (!canEditNode(node)) {
-    throw new Error("This content needs a structured editor");
-  }
-  const atoms = node.content.filter((atom): atom is TextAtom => atom.kind === "text");
-  const next = Array.from(text);
-  let start = 0;
-  while (start < atoms.length && start < next.length && atoms[start]?.value === next[start]) {
-    start += 1;
-  }
-  let end = atoms.length;
-  let nextEnd = next.length;
-  while (end > start && nextEnd > start && atoms[end - 1]?.value === next[nextEnd - 1]) {
-    end -= 1;
-    nextEnd -= 1;
-  }
-  if (start === end && start === nextEnd) {
-    return [];
-  }
-  return [
-    {
-      kind: "rich-text-splice",
-      nodeId: node.nodeId,
-      deleteAtomIds: atoms.slice(start, end).map((atom) => atom.id),
-      anchor: { ...END_SEQUENCE_ANCHOR, after: atoms[start - 1]?.id ?? null, before: atoms[end]?.id ?? null },
-      insert: next.slice(start, nextEnd).join(""),
-    },
-  ];
 }

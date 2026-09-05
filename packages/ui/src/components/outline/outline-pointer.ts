@@ -28,6 +28,24 @@ export function useOutlinePointer(options: PointerOptions) {
   const cleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => cleanupRef.current?.(), []);
 
+  useEffect(() => {
+    const outside = (event: globalThis.MouseEvent) => {
+      const { containerRef, select } = optionsRef.current;
+      const owner =
+        event.target instanceof Element
+          ? event.target.closest("[data-outline-owner]")?.getAttribute("data-outline-owner")
+          : null;
+      if (owner === containerRef.current?.id) {
+        return;
+      }
+      if (event.target instanceof Node && !containerRef.current?.contains(event.target)) {
+        select(emptyOutlineSelection);
+      }
+    };
+    document.addEventListener("mousedown", outside);
+    return () => document.removeEventListener("mousedown", outside);
+  }, []);
+
   const track = (row: OutlineRowViewModel, event: MouseEvent, caret: number, native: boolean) => {
     cleanupRef.current?.();
     const move = (pointer: globalThis.MouseEvent) => {
@@ -112,6 +130,16 @@ export function useOutlinePointer(options: PointerOptions) {
     if (row.item.editable === false) {
       edit.commitAndExit();
       containerRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (row.item.activation === "object" && edit.activeKey !== row.key) {
+      event.preventDefault();
+      if (event.detail >= 2) {
+        flushSync(() => edit.startAtCaret(row, contentLength(row.item.content)));
+      } else {
+        edit.commitAndExit();
+        containerRef.current?.focus({ preventScroll: true });
+      }
       return;
     }
     const native = event.target.closest('[data-ui="outline-editor"]') !== null;

@@ -1,3 +1,5 @@
+import { verifyNodeEditing } from "./verify-node-editing.mjs";
+import { verifyWorkspaceEditing } from "./verify-workspace-editing.mjs";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rm, access } from "node:fs/promises";
@@ -53,6 +55,7 @@ try {
   }
   browser = await chromium.launch({ executablePath: executable, headless: true });
   const context = await browser.newContext();
+  context.setDefaultTimeout(15000);
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -66,7 +69,7 @@ try {
   await page.getByLabel("Workspace name", { exact: true }).fill("Shared workspace");
   await page.getByRole("button", { name: "Create workspace", exact: true }).click();
   await page.getByRole("heading", { name: "Shared workspace", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Add node", exact: true }).click();
+  await page.getByRole("button", { name: "Create node", exact: true }).click();
   const row = page
     .locator('[data-ui="outline-row"]')
     .filter({ has: page.locator('[data-ui="outline-row-text"]') })
@@ -149,6 +152,8 @@ try {
   assert.equal(result.status, "published");
   await page.getByText("A shared note from another client", { exact: true }).waitFor();
   await second.getByText("A shared note from another client", { exact: true }).waitFor();
+  await verifyWorkspaceEditing(page, daemon.client, workspaceId, actor.actorId, node.nodeId);
+  await verifyNodeEditing(page, daemon.client, workspaceId, actor.actorId);
   const denied = await fetch(`${origin}/api/application`, {
     method: "POST",
     headers: { origin: "https://example.com", "content-type": "application/json" },

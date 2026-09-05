@@ -52,9 +52,11 @@ export function OutlineTreeRow({
       aria-selected={selected}
       aria-setsize={row.siblingCount}
       className={cn(
-        "group/outline-row relative flex min-h-8 min-w-0 items-start gap-1 rounded-md py-1 pr-1.5",
+        "group/outline-row relative flex min-w-0 items-start rounded-selection pr-1.5",
         dragged && "opacity-40",
       )}
+      style={{ gap: "var(--lode-outline-gap)", paddingBlock: "var(--lode-outline-row-padding)" }}
+      data-object-focused={cursor && row.item.activation === "object" && editActiveKey !== row.key ? "true" : undefined}
       data-editing={editActiveKey === row.key ? "true" : undefined}
       data-item-key={row.key}
       data-parent-key={row.parentKey ?? undefined}
@@ -75,7 +77,7 @@ export function OutlineTreeRow({
         onExpandedChange={onExpandedChange}
         row={row}
       />
-      <div className="min-w-0 flex-1 text-body leading-5.5">
+      <div className="min-w-0 flex-1 text-document-body">
         {editing === undefined ? (
           <OutlineItemContent presentation={presentation} row={row} />
         ) : (
@@ -83,7 +85,7 @@ export function OutlineTreeRow({
             binding={editActiveKey === row.key ? editBinding : null}
             placeholder={cursor || editActiveKey === row.key ? (editing.emptyPlaceholder ?? "Start typing…") : ""}
           >
-            <div className="flex min-h-6 max-w-full min-w-0 items-start py-0.5" data-ui="outline-row-text">
+            <div className="flex min-h-lh max-w-full min-w-0 items-start" data-ui="outline-row-text">
               <OutlineItemContent presentation={presentation} row={row} />
             </div>
           </OutlineInlineEditorProvider>
@@ -115,7 +117,11 @@ export function OutlineItemContent({
     >
       <span
         className={cn(
-          row.item.editable === false ? "lode-outline-readonly" : "cursor-text",
+          row.item.editable === false
+            ? "lode-outline-readonly"
+            : row.item.activation === "object"
+              ? "cursor-default"
+              : "cursor-text",
           contentStyle?.weight === "medium" && "font-medium",
         )}
         data-ui={row.item.editable === false ? "outline-readonly-text" : undefined}

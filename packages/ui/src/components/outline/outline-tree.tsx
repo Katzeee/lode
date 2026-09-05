@@ -75,12 +75,13 @@ type OutlineTreeProperties<Presentation, Action> = Readonly<{
   label: string;
   onExpandedChange: (key: string, expanded: boolean) => void;
   /** Structure edits return the host's appearance mapping for focus and selection continuity. */
-  onMove?: (move: OutlineMove) => OutlineMoveResult | null;
+  onMove?: (move: OutlineMove) => OutlineMoveResult | null | Promise<OutlineMoveResult | null>;
   onDeleteSelection?: (keys: readonly string[]) => void;
   onPresentationAction?: (key: string, action: Action) => void;
   onSelectionChange?: (selection: OutlineSelection) => void;
   selection?: OutlineSelection;
   showGuides?: boolean;
+  selectionToolbar?: boolean;
   presentation: OutlinePresentationRegistry<Presentation, Action>;
 }>;
 
@@ -99,6 +100,7 @@ export function OutlineTree<Presentation, Action>({
   presentation,
   selection,
   showGuides = false,
+  selectionToolbar = false,
 }: OutlineTreeProperties<Presentation, Action>) {
   const treeId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -172,50 +174,57 @@ export function OutlineTree<Presentation, Action>({
     supportsEmptyChildren: editing?.onCreateChild !== undefined,
   };
   return (
-    <div
-      aria-activedescendant={cursorKey === null || edit.activeKey !== null ? undefined : rowDomId(cursorKey)}
-      aria-label={label}
-      aria-multiselectable="true"
-      className="relative w-full rounded-sm outline-none"
-      onKeyDown={interaction.handleKeyDown}
-      {...interaction.clipboard}
-      ref={containerRef}
-      role="tree"
-      tabIndex={0}
-    >
-      <OutlineInlineExtensionsProvider value={inlineExtensions}>
-        <OutlineNodeEnvironmentProvider value={environment}>
-          <OutlineChildren items={items} parent={null} />
-          {items.length === 0 && editing?.onCreateRoot !== undefined ? (
-            <OutlineEmptyChild parentKey={null} parentLabel={label} onActivate={() => interaction.createRoot()} />
-          ) : null}
-        </OutlineNodeEnvironmentProvider>
-      </OutlineInlineExtensionsProvider>
-      {nodeSelection.keys.size === 0 ? null : (
-        <OutlineSelectionToolbar
-          count={selectionRoots.length}
-          containerRef={containerRef}
-          anchorKey={selectionRoots[0] ?? null}
-          commands={commands?.filter((command) => command.inSelectionToolbar)}
-          canExecuteCommand={(id) => interaction.canExecuteCommand(id, undefined, "toolbar")}
-          executeCommand={(id) => interaction.executeCommand(id, "toolbar")}
-          onDelete={onDeleteSelection === undefined ? undefined : interaction.deleteSelected}
-          onMove={onMove === undefined ? undefined : interaction.moveSelected}
-        />
-      )}
-      {drag === null || draggedRows[0] === undefined ? null : (
-        <div
-          className="pointer-events-none fixed z-50 max-w-72 rounded-md border border-border bg-popover px-3 py-1.5 text-body text-popover-foreground shadow-lg"
-          style={{ left: drag.pointer.x + 14, top: drag.pointer.y + 12 }}
-        >
-          <OutlineInlineExtensionsProvider value={inlineExtensions}>
-            <OutlineItemContent presentation={presentRow(draggedRows[0], false)} row={draggedRows[0]} />
-          </OutlineInlineExtensionsProvider>
-          {draggedRows.length <= 1 ? null : (
-            <span className="ml-2 text-caption text-muted-foreground">+{String(draggedRows.length - 1)}</span>
-          )}
-        </div>
-      )}
-    </div>
+    <>
+      <div
+        id={treeId}
+        aria-activedescendant={cursorKey === null || edit.activeKey !== null ? undefined : rowDomId(cursorKey)}
+        aria-label={label}
+        aria-multiselectable="true"
+        className="relative w-full rounded-sm text-document-body outline-none"
+        onKeyDown={interaction.handleKeyDown}
+        {...interaction.clipboard}
+        ref={containerRef}
+        role="tree"
+        tabIndex={0}
+      >
+        <OutlineInlineExtensionsProvider value={inlineExtensions}>
+          <OutlineNodeEnvironmentProvider value={environment}>
+            <OutlineChildren items={items} parent={null} />
+          </OutlineNodeEnvironmentProvider>
+        </OutlineInlineExtensionsProvider>
+        {!selectionToolbar || nodeSelection.keys.size === 0 ? null : (
+          <OutlineSelectionToolbar
+            count={selectionRoots.length}
+            containerRef={containerRef}
+            anchorKey={selectionRoots[0] ?? null}
+            commands={commands?.filter((command) => command.inSelectionToolbar)}
+            canExecuteCommand={(id) => interaction.canExecuteCommand(id, undefined, "toolbar")}
+            executeCommand={(id) => interaction.executeCommand(id, "toolbar")}
+            onDelete={onDeleteSelection === undefined ? undefined : interaction.deleteSelected}
+            onMove={onMove === undefined ? undefined : interaction.moveSelected}
+          />
+        )}
+        {drag === null || draggedRows[0] === undefined ? null : (
+          <div
+            className="pointer-events-none fixed z-50 max-w-72 rounded-md border border-border bg-popover px-3 py-1.5 text-body text-popover-foreground shadow-lg"
+            style={{ left: drag.pointer.x + 14, top: drag.pointer.y + 12 }}
+          >
+            <OutlineInlineExtensionsProvider value={inlineExtensions}>
+              <OutlineItemContent presentation={presentRow(draggedRows[0], false)} row={draggedRows[0]} />
+            </OutlineInlineExtensionsProvider>
+            {draggedRows.length <= 1 ? null : (
+              <span className="ml-2 text-caption text-muted-foreground">+{String(draggedRows.length - 1)}</span>
+            )}
+          </div>
+        )}
+      </div>
+      {editing?.onCreateRoot !== undefined ? (
+        <OutlineEmptyChild parentKey={null} parentLabel={label} onActivate={() => interaction.createRoot()} />
+      ) : null}
+    </>
   );
 }
+
+export { parseOutlineContent, type OutlineSourceSpan } from "./outline-inline-extension.js";
+
+export { sliceContent, contentToSource } from "./outline-content.js";

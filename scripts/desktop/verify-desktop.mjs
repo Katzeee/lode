@@ -41,7 +41,7 @@ try {
   await initialized.page.getByRole("button", { name: "I saved my recovery phrase" }).click();
   await initialized.page.getByRole("button", { name: "Create workspace", exact: true }).click();
   await initialized.page.getByRole("heading", { name: "My workspace", exact: true }).waitFor();
-  await initialized.page.getByRole("button", { name: "Add node", exact: true }).click();
+  await initialized.page.getByRole("button", { name: "Create node", exact: true }).click();
   await initialized.page.locator('[data-ui="outline-row-text"]').first().click();
   await initialized.page.locator('[data-ui="outline-editor"]').pressSequentially("Desktop persistent note");
   await initialized.page.getByRole("heading", { name: "My workspace", exact: true }).click();

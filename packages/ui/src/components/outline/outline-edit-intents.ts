@@ -96,6 +96,9 @@ export function dispatchEditIntent(
         source === undefined ||
         source.hasChildren ||
         source.item.editable === false ||
+        source.item.mergeable === false ||
+        source.item.activation === "object" ||
+        context.rows.find((row) => row.key === key)?.item.mergeable === false ||
         context.editing?.onMerge === undefined
       ) {
         return true;

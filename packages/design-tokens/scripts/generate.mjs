@@ -94,6 +94,7 @@ function runtimeCss() {
   // The non-color surface a theme (built-in or user CSS) may redefine:
   // radii, the spacing unit every spacing utility multiplies, fonts, motion.
   const baseGeometry = [
+    ...Object.entries(resolved.layout.outline).map(([name, value]) => `  --lode-outline-${name}: ${value}px;`),
     ...Object.entries(resolved.radius).map(([name, value]) => `  --lode-radius-${name}: ${value}px;`),
     "  --lode-spacing: 4px;",
     `  --lode-font-sans: ${cssValue(resolveValue(tokens.get("font.family.interface").value, []), "fontFamily")};`,
@@ -278,6 +279,7 @@ function themeCss() {
   lines.push(`  --breakpoint-lg: ${resolved.layout.breakpoint.expanded}px;`);
   lines.push(`  --breakpoint-xl: ${resolved.layout.breakpoint.large}px;`);
   lines.push(`  --breakpoint-2xl: ${resolved.layout.breakpoint["extra-large"]}px;`);
+  lines.push(`  --container-outline-field: ${resolved.layout.outline["field-breakpoint"]}px;`);
   lines.push(`  --container-shell-medium: ${resolved.layout.breakpoint.medium}px;`);
   lines.push(`  --container-shell-expanded: ${resolved.layout.breakpoint.expanded}px;`);
   lines.push("");
