@@ -1,0 +1,406 @@
+syntax = "proto3";
+
+package lode;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/wrappers.proto";
+import "lode/edit.proto";
+import "lode/history.proto";
+import "lode/model.proto";
+import "lode/projection.proto";
+import "lode/review.proto";
+
+enum EditIntent {
+  EDIT_INTENT_UNSPECIFIED = 0;
+  EDIT_INTENT_DIRECT = 1;
+  EDIT_INTENT_PROPOSAL = 2;
+}
+
+enum EngineErrorCode {
+  ENGINE_ERROR_CODE_UNSPECIFIED = 0;
+  ENGINE_ERROR_CODE_INVALID_INPUT = 1;
+  ENGINE_ERROR_CODE_STALE_SELECTION = 2;
+  ENGINE_ERROR_CODE_PROJECTION_UNAVAILABLE = 3;
+  ENGINE_ERROR_CODE_INVOCATION_CONFLICT = 4;
+  ENGINE_ERROR_CODE_HISTORY_UNAVAILABLE = 5;
+  ENGINE_ERROR_CODE_WORKSPACE_NOT_FOUND = 6;
+  ENGINE_ERROR_CODE_ACTOR_LOCKED = 7;
+  ENGINE_ERROR_CODE_ACTOR_NOT_MEMBER = 8;
+}
+
+enum EngineEventKind {
+  ENGINE_EVENT_KIND_UNSPECIFIED = 0;
+  ENGINE_EVENT_KIND_AUTHORITY_ADVANCED = 1;
+  ENGINE_EVENT_KIND_PROJECTION_PUBLISHED = 2;
+  ENGINE_EVENT_KIND_PROJECTION_FAILED = 3;
+  ENGINE_EVENT_KIND_PROJECTION_RECOVERED = 4;
+}
+
+message EditCommand {
+  string workspace_id = 1;
+  string invocation_id = 2;
+  string actor_id = 3;
+  EditIntent intent = 4;
+  string history_channel_id = 5;
+  repeated EditAction actions = 6;
+}
+
+message ResolveReviewCommand {
+  string workspace_id = 1;
+  string invocation_id = 2;
+  string actor_id = 3;
+  ResolutionDecision decision = 4;
+  ReviewSelection selection = 5;
+}
+
+message AdjudicateResolutionCommand {
+  string workspace_id = 1;
+  string invocation_id = 2;
+  string actor_id = 3;
+  ResolutionDecision decision = 4;
+  repeated string proposal_fact_ids = 5;
+  repeated string resolution_ids = 6;
+}
+
+message HistoryCommand {
+  string workspace_id = 1;
+  string invocation_id = 2;
+  string actor_id = 3;
+  HistorySelection selection = 4;
+}
+
+message FinalizeDeletionsCommand {
+  string workspace_id = 1;
+  string invocation_id = 2;
+  string actor_id = 3;
+  repeated string node_ids = 4;
+}
+
+message EngineCommand {
+  oneof command {
+    EditCommand edit = 1;
+    ResolveReviewCommand resolve_review = 2;
+    AdjudicateResolutionCommand adjudicate_resolution = 3;
+    HistoryCommand undo = 4;
+    HistoryCommand redo = 5;
+    FinalizeDeletionsCommand finalize_deletions = 6;
+  }
+}
+
+message EngineError {
+  EngineErrorCode code = 1;
+  string message = 2;
+  google.protobuf.StringValue current_generation_id = 3;
+}
+
+message PublishedResult {
+  AuthorityReceipt receipt = 1;
+  string generation_id = 2;
+}
+
+message CommittedProjectionPendingResult {
+  AuthorityReceipt receipt = 1;
+  google.protobuf.StringValue published_generation_id = 2;
+  string failure = 3;
+}
+
+message RejectedResult {
+  EngineError error = 1;
+}
+
+message OutcomeUnknownResult {
+  string invocation_id = 1;
+}
+
+message WriteResult {
+  oneof result {
+    PublishedResult published = 1;
+    CommittedProjectionPendingResult committed_projection_pending = 2;
+    RejectedResult rejected = 3;
+    OutcomeUnknownResult outcome_unknown = 4;
+  }
+}
+
+message ProjectionQuery {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  optional ProjectionSection section = 3;
+  optional string after = 4;
+  optional uint32 limit = 5;
+}
+
+message ReviewQueryRequest {
+  string workspace_id = 1;
+  optional string after = 2;
+  optional uint32 limit = 3;
+}
+
+message HistoryQueryRequest {
+  string workspace_id = 1;
+  string channel_id = 2;
+}
+
+message InvocationQuery {
+  string workspace_id = 1;
+  string invocation_id = 2;
+}
+
+message ConflictQueryRequest {
+  string workspace_id = 1;
+  optional string after = 2;
+  optional uint32 limit = 3;
+}
+
+message SupertagInstancesQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string supertag_id = 3;
+  optional string after = 4;
+  optional uint32 limit = 5;
+}
+
+message BacklinksQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string target_node_id = 3;
+  optional string after = 4;
+  optional uint32 limit = 5;
+}
+
+message SearchResultsQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string search_node_id = 3;
+  optional string after = 4;
+  optional uint32 limit = 5;
+}
+
+message ViewRowsQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string host_node_id = 3;
+  optional string view_definition_node_id = 4;
+  optional string after = 5;
+  optional uint32 limit = 6;
+}
+
+message OutlineQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string root_node_id = 3;
+  uint32 max_depth = 4;
+  optional string after = 5;
+  optional uint32 limit = 6;
+}
+
+message TrashEvidenceQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string node_id = 3;
+}
+
+message EngineQuery {
+  oneof query {
+    ProjectionQuery projection = 1;
+    ReviewQueryRequest review = 2;
+    HistoryQueryRequest history = 3;
+    InvocationQuery invocation = 4;
+    ConflictQueryRequest conflicts = 5;
+    SupertagInstancesQueryRequest supertag_instances = 6;
+    BacklinksQueryRequest backlinks = 7;
+    SearchResultsQueryRequest search_results = 8;
+    ViewRowsQueryRequest view_rows = 9;
+    OutlineQueryRequest outline = 10;
+    TrashEvidenceQueryRequest trash_evidence = 11;
+  }
+}
+
+message SupertagInstancesResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ProjectionPerspective perspective = 3;
+  string supertag_id = 4;
+  repeated string node_ids = 5;
+  google.protobuf.StringValue next = 6;
+}
+
+enum BacklinkSourceKind {
+  BACKLINK_SOURCE_KIND_UNSPECIFIED = 0;
+  BACKLINK_SOURCE_KIND_BLOCK = 1;
+  BACKLINK_SOURCE_KIND_INLINE = 2;
+}
+
+message Backlink {
+  BacklinkSourceKind source_kind = 1;
+  string source_identity = 2;
+  string host_node_id = 3;
+  InlineReferenceTargetStatus target_status = 4;
+}
+
+message BacklinksResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ProjectionPerspective perspective = 3;
+  string target_node_id = 4;
+  repeated Backlink backlinks = 5;
+  google.protobuf.StringValue next = 6;
+}
+
+message SearchResultReference {
+  string search_node_id = 1;
+  string target_node_id = 2;
+  string row_key = 3;
+}
+
+message SearchResultsResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ProjectionPerspective perspective = 3;
+  string search_node_id = 4;
+  repeated SearchResultReference results = 5;
+  google.protobuf.StringValue next = 6;
+  bool available = 7;
+}
+
+message ViewRowReference {
+  enum SourceKind {
+    SOURCE_KIND_UNSPECIFIED = 0;
+    SOURCE_KIND_OCCURRENCE = 1;
+    SOURCE_KIND_SEARCH_RESULT = 2;
+  }
+  string row_key = 1;
+  string target_node_id = 2;
+  SourceKind source_kind = 3;
+  string source_identity = 4;
+  repeated ViewCell cells = 5;
+  optional ViewGroupKey group = 6;
+}
+
+message ViewCell {
+  string column_node_id = 1;
+  string field_definition_id = 2;
+  google.protobuf.StringValue field_node_id = 3;
+  repeated string value_node_ids = 4;
+}
+
+message ViewGroupKey {
+  string group_node_id = 1;
+  string field_definition_id = 2;
+  string key = 3;
+  repeated string value_node_ids = 4;
+}
+
+message ViewRowsResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ProjectionPerspective perspective = 3;
+  string host_node_id = 4;
+  google.protobuf.StringValue view_definition_node_id = 5;
+  ViewType view_type = 6;
+  repeated ViewRowReference rows = 7;
+  google.protobuf.StringValue next = 8;
+  bool available = 9;
+  ViewOptionsSpec options = 10;
+  bool options_conflicted = 11;
+}
+
+message OutlineRow {
+  string row_key = 1;
+  string occurrence_id = 2;
+  string node_id = 3;
+  string parent_node_id = 4;
+  uint32 depth = 5;
+}
+
+message OutlineResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ProjectionPerspective perspective = 3;
+  string root_node_id = 4;
+  repeated OutlineRow rows = 5;
+  google.protobuf.StringValue next = 6;
+  bool available = 7;
+}
+
+message TrashEvidence {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ProjectionPerspective perspective = 3;
+  string node_id = 4;
+  bool available = 5;
+  string occurrence_id = 6;
+  string parent_node_id = 7;
+  SequenceAnchor anchor = 8;
+}
+
+message AbsentInvocationOutcome {}
+
+message InvocationOutcome {
+  oneof result {
+    AbsentInvocationOutcome absent = 1;
+    PublishedResult published = 2;
+    CommittedProjectionPendingResult committed_projection_pending = 3;
+  }
+}
+
+message QueryResult {
+  oneof result {
+    EngineError rejected = 1;
+    ProjectionPage projection = 2;
+    ReviewQueryResult review = 3;
+    HistoryQueryResult history = 4;
+    InvocationOutcome invocation = 5;
+    ConflictQueryResult conflicts = 6;
+    SupertagInstancesResult supertag_instances = 7;
+    BacklinksResult backlinks = 8;
+    SearchResultsResult search_results = 9;
+    ViewRowsResult view_rows = 10;
+    OutlineResult outline = 11;
+    TrashEvidence trash_evidence = 12;
+  }
+}
+
+message EngineEvent {
+  EngineEventKind kind = 1;
+  string workspace_id = 2;
+  map<string, uint64> frontier = 3;
+  google.protobuf.StringValue generation_id = 4;
+}
+
+service EngineService {
+  rpc Execute(EngineCommand) returns (WriteResult);
+  rpc Query(EngineQuery) returns (QueryResult);
+  rpc ListenEvents(google.protobuf.Empty) returns (stream EngineEvent);
+}
+
+message WorkspaceSummary {
+  string workspace_id = 1;
+  string label = 2;
+}
+
+message ListWorkspacesResult {
+  repeated WorkspaceSummary workspaces = 1;
+}
+
+message CreateWorkspaceRequest {
+  string workspace_id = 1;
+  string name = 2;
+  string actor_id = 3;
+}
+
+message AdoptWorkspaceRequest {
+  // Opaque address of the remote replica-exchange boundary.
+  string endpoint = 1;
+  string workspace_id = 2;
+}
+
+message AdoptWorkspaceResult {
+  string workspace_id = 1;
+  string label = 2;
+}
+
+service EngineWorkspaceService {
+  rpc ListWorkspaces(google.protobuf.Empty) returns (ListWorkspacesResult);
+  rpc CreateWorkspace(CreateWorkspaceRequest) returns (google.protobuf.Empty);
+  rpc AdoptWorkspace(AdoptWorkspaceRequest) returns (AdoptWorkspaceResult);
+}

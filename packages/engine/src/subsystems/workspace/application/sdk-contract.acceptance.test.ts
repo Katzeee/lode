@@ -1,0 +1,621 @@
+import { openTestWorkspace } from "../../../../tests/support/workspace/open-test-workspace.js";
+import { describe, expect, it } from "vitest";
+
+import { InMemoryDocumentStore } from "../../../../tests/support/document-store.js";
+import {
+  END_SEQUENCE_ANCHOR as end,
+  SYSTEM_DEFINITION_CATALOG_NODE_ID,
+  materializedFieldNodeId,
+  templateInstanceNodeId,
+  templateInstanceOccurrenceId,
+  workspaceTrashNodeId,
+} from "../../../domain/fact/index.js";
+import { FactAuthority } from "../authority/fact-authority.js";
+import {
+  createTransportEngineApplication,
+  type EngineApplicationContract,
+  type EngineQuery,
+  type EngineQueryForKind,
+  type EngineQueryInput,
+  type EngineQueryKind,
+  type EngineQueryResult,
+  type EngineTransport,
+} from "@lode/sdk";
+import { createEngineTransportServer } from "../../../../tests/support/application-transport.js";
+import { CURRENT_PROJECTION_VERSIONS } from "../../../domain/reconcile/index.js";
+import { createSupertagApplication, nodeAt } from "../../../../tests/support/workspace/edit-test-actions.js";
+import { buildEngineSubsystems } from "../../index.js";
+import { createEventSubsystemDefinition } from "../../event/event-subsystem.js";
+import { parseEngineQuery } from "./input-validation.js";
+
+function nodeAtWorkspace(nodeId: string, intrinsicNodeType?: "supertag-definition" | "field-definition") {
+  return [nodeAt(nodeId, "workspace", undefined, intrinsicNodeType === undefined ? {} : { intrinsicNodeType })];
+}
+
+async function setup() {
+  const facts = await FactAuthority.open({
+    workspaceId: "workspace",
+    loroPeerId: "101",
+    documents: new InMemoryDocumentStore(),
+  });
+  const event = createEventSubsystemDefinition();
+  const events = buildEngineSubsystems([event] as const, ({ event: capability }) => capability);
+  await events.lifecycle.start();
+  const workspace = await openTestWorkspace({
+    workspaceId: "workspace",
+    facts,
+    versions: CURRENT_PROJECTION_VERSIONS,
+    eventSink: events.api,
+  });
+  function query<Kind extends EngineQueryKind>(
+    query: EngineQueryInput<Kind>,
+  ): Promise<EngineQueryResult<EngineQueryForKind<Kind>>>;
+  async function query(query: EngineQuery): Promise<EngineQueryResult> {
+    let parsed;
+    try {
+      parsed = parseEngineQuery(query);
+    } catch (error) {
+      return {
+        status: "rejected",
+        error: {
+          code: "invalid-input",
+          message: error instanceof Error ? error.message : String(error),
+          currentGenerationId: null,
+        },
+      };
+    }
+    try {
+      const value = await workspace.query(parsed);
+      return { status: "ok", value };
+    } catch (error) {
+      return {
+        status: "rejected",
+        error: {
+          code: "projection-unavailable",
+          message: error instanceof Error ? error.message : String(error),
+          currentGenerationId: null,
+        },
+      };
+    }
+  }
+  const direct: EngineApplicationContract = {
+    execute: (command: Parameters<typeof workspace.execute>[0]) => workspace.execute(command),
+    query,
+    subscribe: events.api.subscribe,
+  };
+  return {
+    facts,
+    direct,
+    serialized: createTransportEngineApplication(createEngineTransportServer(direct)),
+  };
+}
+
+const command = {
+  kind: "edit",
+  workspaceId: "workspace",
+  invocationId: "invocation",
+  actorId: "actor",
+  intent: "direct",
+  historyChannelId: "surface",
+  actions: [
+    {
+      kind: "node-create",
+      occurrenceId: "node-original",
+      nodeId: "node",
+      parentNodeId: "workspace",
+      anchor: end,
+    },
+  ],
+} as const;
+
+describe("transport-neutral SDK contract", () => {
+  it("converts an existing ordinary Node through the serialized contract without replacing its graph", async () => {
+    const { serialized, facts } = await setup();
+    expect(
+      await serialized.execute({
+        ...command,
+        invocationId: "role-setup",
+        actions: [
+          nodeAt("parent", "workspace", "parent-original", { text: "Existing parent" }),
+          nodeAt("child", "parent", "child-original"),
+        ],
+      }),
+    ).toMatchObject({ status: "published" });
+    expect(
+      await serialized.execute({
+        ...command,
+        invocationId: "role-convert",
+        actions: [{ kind: "node-convert-to-supertag", nodeId: "parent" }],
+      }),
+    ).toMatchObject({ status: "published" });
+    const nodes = await serialized.query({
+      kind: "projection",
+      workspaceId: "workspace",
+      perspective: "origin",
+      section: "nodes",
+    });
+    expect(nodes).toMatchObject({
+      status: "ok",
+      value: { nodes: { parent: { intrinsicNodeType: "supertag-definition" }, child: { intrinsicNodeType: null } } },
+    });
+    const owners = await serialized.query({
+      kind: "projection",
+      workspaceId: "workspace",
+      perspective: "origin",
+      section: "nodeOwners",
+    });
+    expect(owners).toMatchObject({ status: "ok", value: { nodeOwners: { parent: "workspace", child: "parent" } } });
+    const children = await serialized.query({
+      kind: "projection",
+      workspaceId: "workspace",
+      perspective: "origin",
+      section: "childOccurrences",
+    });
+    expect(children).toMatchObject({ status: "ok", value: { childOccurrences: { parent: ["child-original"] } } });
+    expect(
+      facts
+        .snapshot()
+        .facts.flatMap((fact) =>
+          fact.body.kind === "action" ? fact.body.actions.filter((action) => action.kind === "node-create") : [],
+        )
+        .filter((action) => action.kind === "node-create" && action.nodeId === "parent"),
+    ).toHaveLength(1);
+  });
+
+  it("CMD-1 app capability exposes only the typed engine contract", async () => {
+    const { direct } = await setup();
+    expect(Object.keys(direct).sort()).toEqual(["execute", "query", "subscribe"]);
+  });
+
+  it("Supertag Search is a bounded serialized query with stable cursors", async () => {
+    const { serialized } = await setup();
+    const setupResult = await serialized.execute({
+      ...command,
+      invocationId: "supertag-instances-setup",
+      actions: [
+        ...nodeAtWorkspace("anime", "supertag-definition"),
+        ...["a", "b", "c", "d", "e"].flatMap((nodeId) => [
+          ...nodeAtWorkspace(nodeId),
+          createSupertagApplication(nodeId, "anime"),
+        ]),
+      ],
+    });
+    expect(setupResult.status).toBe("published");
+
+    const first = await serialized.query({
+      kind: "supertag-instances",
+      workspaceId: "workspace",
+      perspective: "origin",
+      supertagId: "anime",
+      limit: 2,
+    });
+    expect(first).toMatchObject({
+      status: "ok",
+      value: { perspective: "origin", supertagId: "anime", nodeIds: ["a", "b"], next: "b" },
+    });
+    if (first.status !== "ok" || !("nodeIds" in first.value)) {
+      throw new Error("Expected Supertag Search result");
+    }
+    const second = await serialized.query({
+      kind: "supertag-instances",
+      workspaceId: "workspace",
+      perspective: "origin",
+      supertagId: "anime",
+      after: first.value.next,
+      limit: 2,
+    });
+    expect(second).toMatchObject({
+      status: "ok",
+      value: { nodeIds: ["c", "d"], next: "d" },
+    });
+
+    expect(
+      (
+        await serialized.execute({
+          ...command,
+          invocationId: "delete-search-supertag",
+          actions: [{ kind: "node-delete", nodeId: "anime" }],
+        })
+      ).status,
+    ).toBe("published");
+    const nodes = await serialized.query({
+      kind: "projection",
+      workspaceId: "workspace",
+      perspective: "origin",
+      section: "nodes",
+    });
+    expect(nodes).toMatchObject({
+      status: "ok",
+      value: {
+        nodes: {
+          anime: {
+            nodeId: "anime",
+            intrinsicNodeType: "supertag-definition",
+          },
+        },
+      },
+    });
+  });
+
+  it("creates definition-owned ordinary Template Nodes and detaches through the serialized contract", async () => {
+    const { serialized } = await setup();
+    expect(
+      (
+        await serialized.execute({
+          ...command,
+          invocationId: "serialized-template-setup",
+          actions: [
+            nodeAt("note-supertag", "workspace", "note-supertag-original", {
+              intrinsicNodeType: "supertag-definition",
+            }),
+            nodeAt("note", "workspace", "note-occurrence"),
+            {
+              kind: "node-create",
+              occurrenceId: "guidance-original",
+              parentNodeId: "note-supertag",
+              nodeId: "guidance",
+              anchor: end,
+            },
+            createSupertagApplication("note", "note-supertag"),
+          ],
+        })
+      ).status,
+    ).toBe("published");
+
+    expect(
+      await serialized.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        perspective: "origin",
+        section: "nodeOwners",
+      }),
+    ).toMatchObject({ status: "ok", value: { nodeOwners: { guidance: "note-supertag" } } });
+    expect(
+      await serialized.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        perspective: "origin",
+        section: "childOccurrences",
+      }),
+    ).toMatchObject({ status: "ok", value: { childOccurrences: { "note-supertag": ["guidance-original"] } } });
+    const instanceNodeId = templateInstanceNodeId("note", "guidance");
+    const instanceOccurrenceId = templateInstanceOccurrenceId("note", "guidance");
+    expect(
+      (
+        await serialized.execute({
+          ...command,
+          invocationId: "serialized-template-detach",
+          actions: [
+            {
+              kind: "template-node-edit",
+              ownerNodeId: "note",
+              templateNodeId: "guidance",
+              sourcePath: [],
+              intents: [],
+            },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    expect(
+      await serialized.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        perspective: "origin",
+        section: "templateNodeInstances",
+      }),
+    ).toMatchObject({
+      status: "ok",
+      value: {
+        templateNodeInstances: [
+          {
+            ownerNodeId: "note",
+            templateNodeId: "guidance",
+            instanceNodeId,
+            instanceOccurrenceId,
+            state: "detached",
+          },
+        ],
+      },
+    });
+  });
+
+  it("instance Field content deletion crosses the closed serialized contract", async () => {
+    const { serialized } = await setup();
+    expect(
+      (
+        await serialized.execute({
+          ...command,
+          invocationId: "serialized-field-setup",
+          actions: [
+            nodeAt("owner", "workspace", "owner-occurrence"),
+            nodeAt("supertag", "workspace", "supertag-original", { intrinsicNodeType: "supertag-definition" }),
+            nodeAt("field-definition", "workspace", "field-definition-original", {
+              intrinsicNodeType: "field-definition",
+            }),
+            {
+              kind: "field-materialize",
+              ownerNodeId: "owner",
+              fieldDefinitionId: "field-definition",
+            },
+            nodeAt("value", materializedFieldNodeId("owner", "field-definition"), "value-occurrence"),
+            createSupertagApplication("owner", "supertag"),
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    const valueDeletion = await serialized.execute({
+      ...command,
+      invocationId: "serialized-value-delete",
+      actions: [
+        {
+          kind: "field-value-remove",
+          valuePlacementId: "value-occurrence",
+        },
+      ],
+    });
+    expect(valueDeletion.status).toBe("published");
+    expect(
+      await serialized.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        perspective: "origin",
+        section: "materializedFields",
+      }),
+    ).toMatchObject({
+      status: "ok",
+      value: { materializedFields: { owner: [{ valueOccurrenceIds: [] }] } },
+    });
+    expect(
+      await serialized.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        perspective: "origin",
+        section: "workspaceSystemNodes",
+      }),
+    ).toMatchObject({
+      status: "ok",
+      value: {
+        workspaceSystemNodes: {
+          trash: workspaceTrashNodeId("workspace"),
+          systemDefinitionCatalog: SYSTEM_DEFINITION_CATALOG_NODE_ID,
+        },
+      },
+    });
+    expect(
+      await serialized.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        perspective: "origin",
+        section: "metanodes",
+      }),
+    ).toMatchObject({ status: "ok", value: { metanodes: {} } });
+    expect(
+      await serialized.execute({
+        ...command,
+        invocationId: "reject-open-field-delete-shape",
+        actions: [
+          {
+            kind: "materialized-field-clear",
+            ownerNodeId: "owner",
+            fieldDefinitionId: "field-definition",
+            unknown: true,
+          } as never,
+        ],
+      }),
+    ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
+  });
+
+  it("Deletion Finalization remains a closed serialized contract", async () => {
+    const { serialized } = await setup();
+    expect((await serialized.execute(command)).status).toBe("published");
+    const deletion = await serialized.execute({
+      ...command,
+      invocationId: "serialized-delete",
+      actions: [{ kind: "node-delete", nodeId: "node" }],
+    });
+    if (deletion.status !== "published") {
+      throw new Error("Expected serialized deletion");
+    }
+    expect(
+      (
+        await serialized.execute({
+          kind: "finalize-deletions",
+          workspaceId: "workspace",
+          invocationId: "serialized-finalization",
+          actorId: "maintainer",
+          nodeIds: ["node"],
+        })
+      ).status,
+    ).toBe("published");
+  });
+
+  it("serialized and in-process invalid inputs reject before any authority record is written", async () => {
+    const { direct, serialized, facts } = await setup();
+    const initialFactIds = facts.snapshot().facts.map(({ id }) => id);
+    expect(
+      await direct.execute({
+        ...command,
+        invocationId: "bare-node-identity",
+        actions: [{ kind: "node-create", nodeId: "bare", ownerNodeId: "workspace", originalPlacement: null }],
+      } as never),
+    ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
+    const invalid = {
+      ...command,
+      invocationId: "",
+      actions: [{ kind: "future-action", futureSemantic: true }],
+    };
+    expect(await direct.execute(invalid as never)).toMatchObject({
+      status: "rejected",
+      error: { code: "invalid-input" },
+    });
+    const wireInvalid = {
+      ...command,
+      invocationId: "",
+      actions: [{ kind: "node-delete", nodeId: "node" }],
+    } as const;
+    expect(await serialized.execute(wireInvalid)).toMatchObject({
+      status: "rejected",
+      error: { code: "invalid-input" },
+    });
+    const invalidQuery = {
+      kind: "projection",
+      workspaceId: "workspace",
+      perspective: "origin",
+      limit: 0,
+    } as const;
+    expect(await serialized.query(invalidQuery)).toMatchObject({
+      status: "rejected",
+      error: { code: "invalid-input" },
+    });
+    for (const maxDepth of [0, 33]) {
+      expect(
+        await direct.query({
+          kind: "outline",
+          workspaceId: "workspace",
+          perspective: "origin",
+          rootNodeId: "workspace",
+          maxDepth,
+        }),
+      ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
+    }
+    expect(facts.snapshot().facts.map(({ id }) => id)).toEqual(initialFactIds);
+    expect(facts.receipts()).toHaveLength(1);
+  });
+
+  it("rejects pre-send encoding failures and prevents malformed envelopes from reaching authority", async () => {
+    const { direct, serialized, facts } = await setup();
+    const initialFactIds = facts.snapshot().facts.map(({ id }) => id);
+    const invalid = {
+      ...command,
+      actions: [
+        {
+          kind: "node-create",
+          nodeId: "invalid",
+          seed: { text: [{ value: "invalid", attributes: { bigint: 1n } }] },
+        },
+      ],
+    };
+    expect(await direct.execute(invalid as never)).toMatchObject({
+      status: "rejected",
+      error: { code: "invalid-input" },
+    });
+    expect(await serialized.execute(invalid as never)).toMatchObject({
+      status: "rejected",
+      error: { code: "invalid-input" },
+    });
+
+    const server = createEngineTransportServer(direct);
+    // Structurally invalid wire messages: an unset command oneof and an edit payload with no fields.
+    for (const malformedCommand of [{}, { command: { case: "edit", value: {} } }]) {
+      const execution = await server.execute(malformedCommand as never);
+      if (execution.status !== "response") {
+        throw new Error("In-process transport must answer a malformed command message");
+      }
+      expect(execution.message).toMatchObject({ result: { case: "rejected" } });
+    }
+    expect(facts.snapshot().facts.map(({ id }) => id)).toEqual(initialFactIds);
+    expect(facts.receipts()).toHaveLength(1);
+  });
+
+  it("Command outcome unknown", async () => {
+    const { direct } = await setup();
+    const server = createEngineTransportServer(direct);
+    let loseResponse = true;
+    const lossy: EngineTransport = {
+      async execute(message) {
+        const result = await server.execute(message);
+        if (loseResponse) {
+          loseResponse = false;
+          return { status: "outcome-unknown" };
+        }
+        return result;
+      },
+      query: (message) => server.query(message),
+      subscribe: server.subscribe,
+    };
+    const adapter = createTransportEngineApplication(lossy);
+    expect(await adapter.execute(command)).toEqual({
+      status: "outcome-unknown",
+      invocationId: "invocation",
+    });
+    expect(
+      await adapter.query({
+        kind: "invocation",
+        workspaceId: "workspace",
+        invocationId: "invocation",
+      }),
+    ).toMatchObject({
+      status: "ok",
+      value: { status: "published", receipt: { invocationId: "invocation" } },
+    });
+  });
+
+  it("serialized responses and events are closed typed contracts", async () => {
+    const listeners = new Set<Parameters<EngineTransport["subscribe"]>[0]>();
+    // Structurally invalid wire messages: unset result oneofs and an unspecified event kind.
+    const malformed: EngineTransport = {
+      execute: () => Promise.resolve({ status: "response", message: {} as never }),
+      query: () => Promise.resolve({} as never),
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const adapter = createTransportEngineApplication(malformed);
+    await expect(adapter.execute(command)).rejects.toThrow();
+    await expect(
+      adapter.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        perspective: "origin",
+      }),
+    ).rejects.toThrow();
+    let delivered = 0;
+    const eventFailures: unknown[] = [];
+    adapter.subscribe(
+      () => {
+        delivered += 1;
+      },
+      (error) => eventFailures.push(error),
+    );
+    for (const listener of listeners) {
+      expect(() => listener({ kind: 0 } as never)).not.toThrow();
+    }
+    expect(delivered).toBe(0);
+    expect(eventFailures).toHaveLength(1);
+  });
+
+  it("EVENT-1 events carry publication state and queries carry snapshots", async () => {
+    const { serialized } = await setup();
+    const events: unknown[] = [];
+    serialized.subscribe(() => {
+      throw new Error("injected serialized listener failure");
+    }, rethrow);
+    const unsubscribe = serialized.subscribe((event) => events.push(event), rethrow);
+    await serialized.execute(command);
+    unsubscribe();
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ kind: "authority-advanced", workspaceId: "workspace" });
+    expect(events[1]).toMatchObject({ kind: "projection-published", workspaceId: "workspace" });
+    expect(events.every((event) => typeof event === "object" && event !== null && !Object.hasOwn(event, "facts"))).toBe(
+      true,
+    );
+    const first = await serialized.query({
+      kind: "projection",
+      workspaceId: "workspace",
+      perspective: "origin",
+    });
+    const second = await serialized.query({
+      kind: "projection",
+      workspaceId: "workspace",
+      perspective: "origin",
+    });
+    expect(first).toEqual(second);
+    expect(first).not.toBe(second);
+  });
+});
+
+function rethrow(error: unknown): never {
+  throw error;
+}

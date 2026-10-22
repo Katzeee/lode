@@ -1,0 +1,144 @@
+import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
+import type { EditAction } from "@lode/sdk";
+
+import { CliError, writeView } from "../outcome/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { stringOption, writeCommand, type ProductCommandRun } from "../command/index.js";
+import { resolveTarget, resource } from "../target/index.js";
+import { runWrite, workspaceIdOf } from "../intent/index.js";
+import { parseFieldValue } from "../value/field-values.js";
+import { readFieldState, slotId, type FieldState } from "./field-state.js";
+
+const VALUE_OPTION = stringOption("--value", "Field value (repeatable)", { repeatable: true });
+const ON_OPTION = stringOption("--on", "Node owning the instance field", { required: true });
+
+const fieldSet = writeCommand({
+  path: ["field", "set"],
+  summary: "Set the value of a Single field.",
+  positionals: [["field", "Field Definition target"]],
+  options: [ON_OPTION, { ...VALUE_OPTION, required: true }],
+  run: runWrite("field.set", async (context, args) => {
+    const state = await readFieldState(context, args.positional("field"), args.requiredOption("--on"));
+    if (state.cardinality === "list") {
+      throw new CliError("usage", "field set is for Single fields; use field add for List fields.");
+    }
+    const values = args.many("--value");
+    if (values.length !== 1) {
+      throw new CliError("usage", "field set takes exactly one --value.");
+    }
+    const raw = values.at(0);
+    if (raw === undefined) {
+      throw new CliError("usage", "field set takes exactly one --value.");
+    }
+    const actions = await setValueActions(context, state, raw);
+    return {
+      actions,
+      extra: {
+        target: state.fieldDescriptor,
+        on: resource(context, "node", state.ownerNodeId, state.ownerLabel),
+      },
+      view: writeView("Set", state.fieldDescriptor, `on ${state.ownerLabel}`),
+    };
+  }),
+});
+
+async function setValueActions(
+  context: Parameters<ProductCommandRun>[0],
+  state: FieldState,
+  raw: string,
+): Promise<readonly EditAction[]> {
+  const workspaceId = workspaceIdOf(context);
+  const parsed = parseFieldValue(state.datatype, raw);
+  const base = {
+    ownerNodeId: state.ownerNodeId,
+    fieldDefinitionId: state.fieldDefinitionId,
+    valueOccurrenceId: slotId(state, "value-occurrence"),
+  };
+  if (parsed.kind === "plain") {
+    if (state.materialized !== undefined) {
+      const valueOccurrenceId = state.materialized.valueOccurrenceIds.at(0);
+      const occurrences = await context.session.readProjection(workspaceId, context.perspective, "occurrences");
+      const valueNodeId = valueOccurrenceId === undefined ? undefined : occurrences[valueOccurrenceId]?.nodeId;
+      if (valueNodeId === undefined) {
+        throw new CliError("unsupported", "The materialized field has no plain value to replace.");
+      }
+      const nodes = await context.session.readProjection(workspaceId, context.perspective, "nodes");
+      const deleteAtomIds = (nodes[valueNodeId]?.content ?? []).flatMap((item) =>
+        item.kind === "text" && item.id !== undefined ? [item.id] : [],
+      );
+      return [{ kind: "rich-text-splice", nodeId: valueNodeId, deleteAtomIds, anchor: end, insert: parsed.text }];
+    }
+    return [
+      {
+        kind: "field-value-create",
+        ownerNodeId: state.ownerNodeId,
+        fieldDefinitionId: state.fieldDefinitionId,
+        valueNodeId: slotId(state, "value"),
+        valueOccurrenceId: slotId(state, "value-occurrence"),
+        anchor: end,
+        seed: { text: [{ value: parsed.text, attributes: {} }] },
+      },
+    ];
+  }
+  if (parsed.kind === "options-from-supertag") {
+    const target = await resolveTarget(context, parsed.targetToken, ["node", "supertag"]);
+    return [{ kind: "field-options-from-supertag-value-set", ...base, targetNodeId: target.nodeId }];
+  }
+  if (parsed.kind === "number") {
+    return [{ kind: "field-number-value-set", ...base, valueNodeId: slotId(state, "value"), value: parsed.value }];
+  }
+  if (parsed.kind === "date") {
+    return [{ kind: "field-date-value-set", ...base, valueNodeId: slotId(state, "value"), value: parsed.value }];
+  }
+  return [{ kind: "field-checkbox-value-set", ...base, value: parsed.value }];
+}
+
+const fieldAdd = writeCommand({
+  path: ["field", "add"],
+  summary: "Append values to a List field atomically.",
+  positionals: [["field", "Field Definition target"]],
+  options: [ON_OPTION, { ...VALUE_OPTION, required: true }],
+  run: runWrite("field.add", async (context, args) => {
+    const state = await readFieldState(context, args.positional("field"), args.requiredOption("--on"));
+    if (state.cardinality !== "list") {
+      throw new CliError("usage", "field add is for List fields; use field set for Single fields.");
+    }
+    const values = args.many("--value");
+    const duplicates = new Set(values);
+    if (duplicates.size !== values.length) {
+      throw new CliError("invalid-value", "Duplicate --value entries in one invocation.");
+    }
+    const actions: EditAction[] = [];
+    for (const [index, raw] of values.entries()) {
+      const parsed = parseFieldValue(state.datatype, raw);
+      if (parsed.kind !== "plain") {
+        throw new CliError(
+          "unsupported",
+          "List adds with typed datatypes are single-slot in this MVP; only Plain list values are supported.",
+        );
+      }
+      actions.push({
+        kind: "field-value-create",
+        ownerNodeId: state.ownerNodeId,
+        fieldDefinitionId: state.fieldDefinitionId,
+        valueNodeId: `${slotId(state, "value")}-${values.length > 1 ? index : "1"}`,
+        valueOccurrenceId: `${slotId(state, "value-occurrence")}-${values.length > 1 ? index : "1"}`,
+        anchor: end,
+        seed: { text: [{ value: parsed.text, attributes: {} }] },
+      });
+    }
+    return {
+      actions,
+      extra: {
+        target: state.fieldDescriptor,
+        on: resource(context, "node", state.ownerNodeId, state.ownerLabel),
+      },
+      view: writeView("Added", state.fieldDescriptor, `to ${state.ownerLabel}`),
+    };
+  }),
+});
+
+export function registerFieldValueWriteCommands(catalog: CommandCatalog): void {
+  catalog.register(fieldSet);
+  catalog.register(fieldAdd);
+}

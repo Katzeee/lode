@@ -1,0 +1,29 @@
+{
+  "name": "@lode/protocol",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    "./proto": {
+      "types": "./dist/proto.d.ts",
+      "import": "./dist/proto.js"
+    }
+  },
+  "scripts": {
+    "generate": "buf generate",
+    "clean": "node ../../scripts/clean-package-dist.mjs",
+    "prebuild": "npm run generate && npm run clean",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.12.1"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.71.0",
+    "@bufbuild/protoc-gen-es": "^2.12.1",
+    "typescript": "^5.7.0"
+  }
+}

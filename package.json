@@ -1,0 +1,66 @@
+{
+  "name": "lode-workspace",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0 <27.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=@lode/design-tokens && npm run build --workspace=@lode/design-system-catalog && npm run build --workspace=@lode/ui && npm run build --workspace=@lode/system-schema && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/sdk && npm run build --workspace=@lode/node-endpoint && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/engine-platform-desktop && npm run build --workspace=@lode/engine-platform-mobile && npm run build --workspace=@lode/application && npm run build --workspace=@lode/app-mobile && npm run build --workspace=@lode/desktop-client && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli && npm run build --workspace=@lode/app-desktop",
+    "build:desktop": "node scripts/desktop/build-desktop.mjs",
+    "dev:desktop-web": "npm run build && npm run dev:web --workspace=@lode/app-desktop",
+    "build:mobile:android": "node scripts/mobile/build-android.mjs",
+    "test": "npm run build && npm run test:built",
+    "test:built": "npm run test --workspaces --if-present",
+    "test:engine": "npm run test --workspace=@lode/engine",
+    "test:daemon": "npm run test --workspace=@lode/daemon",
+    "test:cli": "npm run test --workspace=@lode/app-cli",
+    "benchmark:projection-rebuild": "npm run benchmark:projection-rebuild --workspace=@lode/engine --",
+    "typecheck": "npm run typecheck:build && npm run typecheck:test",
+    "typecheck:build": "npm run typecheck --workspaces --if-present",
+    "typecheck:test": "npm run typecheck:test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "lint:fix": "npm run lint:fix --workspaces --if-present",
+    "generate:wire": "node scripts/generate-wire-proto.mjs",
+    "verify:wire": "node scripts/generate-wire-proto.mjs --check",
+    "verify:eol": "node scripts/verify-eol.mjs",
+    "verify:acceptance-catalog": "node scripts/verify-acceptance-catalog.mjs",
+    "verify:desktop": "node scripts/desktop/verify-desktop.mjs",
+    "verify:fact-sot": "npm run typecheck:test --workspace=@lode/engine && npm run test --workspace=@lode/engine -- src/subsystems/workspace/fact-sot.acceptance.test.ts tests/fact-sot-governance.acceptance.test.ts tests/proposal-mode.property.test.ts",
+    "verify:architecture": "node --test scripts/architecture/architecture-verification.test.mjs && node scripts/verify-architecture.mjs",
+    "verify": "npm run verify:eol && npm run build && npm run verify:wire && npm run typecheck && npm run lint && npm run test:built && npm run verify:architecture && npm run verify:acceptance-catalog",
+    "prepare": "husky",
+    "verify:application-web": "node scripts/application/verify-web.mjs",
+    "verify:application-android": "node scripts/mobile/verify-android.mjs"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-node-import": "^1.2.0",
+    "eslint-plugin-unicorn": "^64.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
+    "prettier": "^3.8.3",
+    "typescript-eslint": "^8.60.1"
+  },
+  "allowScripts": {
+    "@bufbuild/buf@1.71.0": true,
+    "@parcel/watcher@2.5.1": true,
+    "better-sqlite3@12.11.1": true,
+    "electron@41.10.7": true,
+    "esbuild@0.28.2": true
+  }
+}

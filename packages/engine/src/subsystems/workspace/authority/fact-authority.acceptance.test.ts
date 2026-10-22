@@ -1,0 +1,427 @@
+import { describe, expect, it } from "vitest";
+import { LoroDoc } from "loro-crdt";
+
+import type { DocumentStore, DocumentUpdate, LoadedDocumentBytes } from "../../persistence/document-store.js";
+import { InvocationConflictError, ProjectionUnavailableError } from "./errors.js";
+import { FactAuthority } from "./fact-authority.js";
+import { syncPair, testFactReplication } from "../../../../tests/support/sync.js";
+import {
+  documentsContaining,
+  FACT_AUTHORITY_DOCUMENT_ID,
+  InMemoryDocumentStore,
+  localReceiptsDocumentId,
+} from "../../../../tests/support/document-store.js";
+
+const REPLICA_A = "101";
+const REPLICA_B = "202";
+const request = { command: "create-node", nodeId: "node" } as const;
+const body = edit("node");
+
+function edit(nodeId: string) {
+  return {
+    kind: "action" as const,
+    actorId: "actor",
+    intent: "direct" as const,
+    actions: [
+      {
+        kind: "node-create" as const,
+        nodeId,
+        ownerNodeId: "workspace",
+        originalPlacement: null,
+      },
+    ] as const,
+  };
+}
+
+async function open(documents: DocumentStore, peerId: `${number}` = "101") {
+  return FactAuthority.open({
+    workspaceId: "workspace",
+    loroPeerId: peerId,
+    documents,
+  });
+}
+
+describe("production Fact authority store", () => {
+  it("CMD-2 edit Fact batch, receipt, and frontier commit atomically", async () => {
+    const durable = new RecordingDocumentStore();
+    const store = await open(durable, "101");
+    const result = await store.commit({
+      invocationId: "invocation",
+      request,
+      writes: [
+        {
+          ...body,
+          actions: [
+            ...body.actions,
+            { kind: "node-create", nodeId: "node-2", ownerNodeId: "workspace", originalPlacement: null },
+          ],
+        },
+      ],
+      lineage: null,
+      publishedFrontier: {},
+    });
+
+    expect(result.created).toBe(true);
+    expect(result.receipt.factIds).toHaveLength(1);
+    expect(result.receipt.committedFrontier).toEqual({ [REPLICA_A]: 1 });
+    expect(store.snapshot().facts).toHaveLength(1);
+    expect(durable.appendCount).toBe(1);
+    const persisted = await durable.load(FACT_AUTHORITY_DOCUMENT_ID);
+    const authorityUpdate = persisted?.updates[0];
+    if (!authorityUpdate) {
+      throw new Error("Expected one durable authority update");
+    }
+    const authorityDocument = new LoroDoc();
+    authorityDocument.import(authorityUpdate);
+    const factRecords = authorityDocument.getList("facts");
+    expect(factRecords.length).toBe(1);
+    expect(factRecords.get(0)).toEqual({
+      kind: "action",
+      actorId: "actor",
+      intent: "direct",
+      actions: [
+        { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
+        { kind: "node-create", nodeId: "node-2", ownerNodeId: "workspace", originalPlacement: null },
+      ],
+    });
+    const reopened = await open(durable, "101");
+    expect(reopened.snapshot().facts).toHaveLength(1);
+    expect(reopened.receipt("invocation")).toEqual(result.receipt);
+  });
+
+  it("an append failure leaves authority unchanged", async () => {
+    const documents = new FailingDocumentStore();
+    const store = await open(documents);
+    await expect(
+      store.commit({
+        invocationId: "invocation",
+        request,
+        writes: [body],
+        lineage: null,
+        publishedFrontier: {},
+      }),
+    ).rejects.toThrow("injected append failure");
+
+    expect(store.snapshot()).toEqual({ facts: [], frontier: {} });
+    expect(store.receipt("invocation")).toBeNull();
+  });
+
+  it("a failed automatic compaction keeps the commit and retries after the next append", async () => {
+    const sourceDocuments = new FailingAuthoritySnapshotStore();
+    const source = await FactAuthority.open({
+      workspaceId: "workspace",
+      loroPeerId: "101",
+      documents: sourceDocuments,
+    });
+    for (let index = 0; index < 63; index += 1) {
+      await source.commit({
+        invocationId: `before-compaction-${index}`,
+        request: { ...request, nodeId: `before-compaction-${index}` },
+        writes: [edit(`before-compaction-${index}`)],
+        lineage: null,
+        publishedFrontier: source.snapshot().frontier,
+      });
+    }
+    const first = await source.commit({
+      invocationId: "compaction-failed",
+      request,
+      writes: [body],
+      lineage: null,
+      publishedFrontier: source.snapshot().frontier,
+    });
+    expect(first.created).toBe(true);
+    expect(source.snapshot().facts).toHaveLength(64);
+    expect(source.receipt("compaction-failed")).not.toBeNull();
+    expect(sourceDocuments.authoritySnapshotAttempts).toBe(1);
+
+    sourceDocuments.failAuthoritySnapshot = false;
+    await source.commit({
+      invocationId: "compaction-retry",
+      request: { ...request, nodeId: "second" },
+      writes: [edit("second")],
+      lineage: null,
+      publishedFrontier: first.receipt.committedFrontier,
+    });
+    expect(sourceDocuments.authoritySnapshotAttempts).toBe(2);
+    expect((await sourceDocuments.load(FACT_AUTHORITY_DOCUMENT_ID))?.updates).toHaveLength(0);
+    const destination = await open(new InMemoryDocumentStore(), "202");
+    await syncPair(testFactReplication(source.replication), testFactReplication(destination.replication));
+    expect(destination.snapshot().facts).toHaveLength(65);
+  });
+
+  it("Invocation retry and identity conflict use the canonical request digest", async () => {
+    const documents = new InMemoryDocumentStore();
+    const store = await open(documents);
+    const first = await store.commit({
+      invocationId: "invocation",
+      request,
+      writes: [body],
+      lineage: null,
+      publishedFrontier: {},
+    });
+    const retry = await store.commit({
+      invocationId: "invocation",
+      request: { nodeId: "node", command: "create-node" },
+      writes: [body],
+      lineage: null,
+      publishedFrontier: {},
+    });
+
+    expect(retry).toEqual({ receipt: first.receipt, created: false });
+    expect(store.snapshot().facts).toHaveLength(1);
+    await expect(
+      store.commit({
+        invocationId: "invocation",
+        request: { ...request, nodeId: "other" },
+        writes: [body],
+        lineage: null,
+        publishedFrontier: first.receipt.committedFrontier,
+      }),
+    ).rejects.toBeInstanceOf(InvocationConflictError);
+  });
+
+  it("concurrent Invocation retries serialize to one atomic authority batch", async () => {
+    const store = await open(new InMemoryDocumentStore());
+    const commit = {
+      invocationId: "concurrent-retry",
+      request,
+      writes: [body],
+      lineage: null,
+      publishedFrontier: {},
+    } as const;
+
+    const [left, right] = await Promise.all([store.commit(commit), store.commit(commit)]);
+
+    expect([left.created, right.created].sort()).toEqual([false, true]);
+    expect(left.receipt).toEqual(right.receipt);
+    expect(store.snapshot().facts).toHaveLength(1);
+    expect(store.receipt("concurrent-retry")).toEqual(left.receipt);
+  });
+
+  it("Command during projection lag", async () => {
+    const store = await open(new InMemoryDocumentStore());
+    const first = await store.commit({
+      invocationId: "first",
+      request,
+      writes: [body],
+      lineage: null,
+      publishedFrontier: {},
+    });
+    await expect(
+      store.commit({
+        invocationId: "second",
+        request: { ...request, nodeId: "node-2" },
+        writes: [edit("node-2")],
+        lineage: null,
+        publishedFrontier: {},
+      }),
+    ).rejects.toBeInstanceOf(ProjectionUnavailableError);
+    expect(store.receipt("second")).toBeNull();
+    expect(first.receipt.committedFrontier).toEqual({ [REPLICA_A]: 1 });
+  });
+
+  it("restart preserves separate Fact and receipt documents while sync exports only Facts", async () => {
+    const documentsA = new InMemoryDocumentStore();
+    const storeA = await open(documentsA);
+    const committed = await storeA.commit({
+      invocationId: "invocation",
+      request,
+      writes: [body],
+      lineage: null,
+      publishedFrontier: {},
+    });
+    const restarted = await open(documentsA, "101");
+    expect(restarted.receipt("invocation")).toEqual(committed.receipt);
+    expect(restarted.snapshot()).toEqual(storeA.snapshot());
+    await expect(documentsA.load(FACT_AUTHORITY_DOCUMENT_ID)).resolves.not.toBeNull();
+    await expect(documentsA.load(localReceiptsDocumentId(REPLICA_A))).resolves.not.toBeNull();
+
+    const storeB = await open(new InMemoryDocumentStore(), "202");
+    await storeB.replication.importUpdate(await storeA.replication.exportUpdate());
+    expect(storeB.snapshot()).toEqual(storeA.snapshot());
+    expect(storeB.receipt("invocation")).toBeNull();
+  });
+
+  it("local receipt retention can end without deleting authoritative Facts", async () => {
+    const documents = new InMemoryDocumentStore();
+    const store = await open(documents);
+    await store.commit({
+      invocationId: "expires-locally",
+      request,
+      writes: [body],
+      lineage: null,
+      publishedFrontier: {},
+    });
+
+    const authorityOnlyDocuments = await documentsContaining(documents, FACT_AUTHORITY_DOCUMENT_ID);
+    const reopened = await open(authorityOnlyDocuments, "101");
+
+    expect(reopened.snapshot().facts).toHaveLength(1);
+    expect(reopened.receipt("expires-locally")).toBeNull();
+  });
+
+  it("direct sync import preserves locally committed Facts without an earlier export", async () => {
+    const local = await open(new InMemoryDocumentStore(), "101");
+    await local.commit({
+      invocationId: "local",
+      request: { side: "local" },
+      writes: [body],
+      lineage: null,
+      publishedFrontier: {},
+    });
+    const remote = await open(new InMemoryDocumentStore(), "202");
+    await remote.commit({
+      invocationId: "remote",
+      request: { side: "remote" },
+      writes: [edit("remote")],
+      lineage: null,
+      publishedFrontier: {},
+    });
+
+    await local.replication.importUpdate(await remote.replication.exportUpdate());
+
+    expect(local.snapshot().facts).toHaveLength(2);
+  });
+
+  it("rejects a non-Fact replica update before changing memory or durable authority", async () => {
+    const documents = new InMemoryDocumentStore();
+    const authority = await open(documents, "101");
+    const foreign = new LoroDoc();
+    foreign.setPeerId("202");
+    foreign.getMap("not-facts").set("intrusion", true);
+    foreign.commit();
+
+    await expect(authority.replication.importUpdate(foreign.export({ mode: "update" }))).rejects.toThrow(
+      "non-Fact container",
+    );
+
+    expect(authority.snapshot()).toEqual({ facts: [], frontier: {} });
+    expect(await documents.load(FACT_AUTHORITY_DOCUMENT_ID)).toBeNull();
+  });
+
+  it("keeps replicated authority unchanged when durable import fails", async () => {
+    const source = await open(new InMemoryDocumentStore(), "202");
+    await source.commit({
+      invocationId: "remote",
+      request: { side: "remote" },
+      writes: [edit("remote")],
+      lineage: null,
+      publishedFrontier: {},
+    });
+    const target = await open(new FailingDocumentStore(), "101");
+
+    await expect(target.replication.importUpdate(await source.replication.exportUpdate())).rejects.toThrow(
+      "injected append failure",
+    );
+
+    expect(target.snapshot()).toEqual({ facts: [], frontier: {} });
+  });
+
+  it("SYNC-3 workspace replica sequences are isolated", async () => {
+    const first = await open(new InMemoryDocumentStore(), "101");
+    const second = await open(new InMemoryDocumentStore(), "202");
+    const left = await first.commit({
+      invocationId: "left",
+      request: { side: "left" },
+      writes: [body],
+      lineage: null,
+      publishedFrontier: {},
+    });
+    const right = await second.commit({
+      invocationId: "right",
+      request: { side: "right" },
+      writes: [edit("right")],
+      lineage: null,
+      publishedFrontier: {},
+    });
+    expect(left.receipt.committedFrontier).toEqual({ [REPLICA_A]: 1 });
+    expect(right.receipt.committedFrontier).toEqual({ [REPLICA_B]: 1 });
+  });
+
+  it("DUR-3 retained facts survive snapshots and long offline merge", async () => {
+    const documents = new InMemoryDocumentStore();
+    const store = await FactAuthority.open({
+      workspaceId: "workspace",
+      loroPeerId: "101",
+      documents: documents,
+    });
+    for (let index = 0; index < 80; index += 1) {
+      await store.commit({
+        invocationId: `offline-${index}`,
+        request: { index },
+        writes: [edit(`offline-${index}`)],
+        lineage: null,
+        publishedFrontier: store.snapshot().frontier,
+      });
+    }
+    const restarted = await open(documents);
+    const remote = await open(new InMemoryDocumentStore(), "202");
+    await remote.replication.importUpdate(await restarted.replication.exportUpdate());
+    expect(restarted.snapshot().facts).toHaveLength(80);
+    expect(remote.snapshot()).toEqual(restarted.snapshot());
+  });
+
+  it("production compaction bounds the external update replay chain without deleting Facts", async () => {
+    const documents = new InMemoryDocumentStore();
+    const store = await FactAuthority.open({
+      workspaceId: "workspace",
+      loroPeerId: "101",
+      documents: documents,
+    });
+    for (let index = 0; index < 129; index += 1) {
+      await store.commit({
+        invocationId: `compact-${index}`,
+        request: { index },
+        writes: [edit(`compact-${index}`)],
+        lineage: null,
+        publishedFrontier: store.snapshot().frontier,
+      });
+    }
+
+    expect((await documents.load(FACT_AUTHORITY_DOCUMENT_ID))?.updates).toHaveLength(1);
+    const restarted = await open(documents);
+    expect(restarted.snapshot().facts).toHaveLength(129);
+  });
+});
+
+class RecordingDocumentStore extends InMemoryDocumentStore {
+  appendCount = 0;
+
+  override appendUpdates(updates: readonly DocumentUpdate[]): Promise<readonly number[]> {
+    this.appendCount += 1;
+    return super.appendUpdates(updates);
+  }
+}
+
+class FailingDocumentStore implements DocumentStore {
+  load(_id: string): Promise<LoadedDocumentBytes | null> {
+    return Promise.resolve(null);
+  }
+
+  appendUpdate(_id: string, _bytes: Uint8Array): Promise<number> {
+    return Promise.reject(new Error("injected append failure"));
+  }
+
+  appendUpdates(_updates: readonly DocumentUpdate[]): Promise<readonly number[]> {
+    return Promise.reject(new Error("injected append failure"));
+  }
+
+  writeSnapshot(_id: string, _bytes: Uint8Array): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+class FailingAuthoritySnapshotStore extends InMemoryDocumentStore {
+  failAuthoritySnapshot = true;
+  authoritySnapshotAttempts = 0;
+
+  override writeSnapshot(id: string, bytes: Uint8Array): Promise<void> {
+    if (id === FACT_AUTHORITY_DOCUMENT_ID) {
+      this.authoritySnapshotAttempts += 1;
+    }
+    if (id === FACT_AUTHORITY_DOCUMENT_ID && this.failAuthoritySnapshot) {
+      return Promise.reject(new Error("injected authority snapshot failure"));
+    }
+    return super.writeSnapshot(id, bytes);
+  }
+}

@@ -1,0 +1,9 @@
+# Lode design tokens
+
+This package owns the machine-readable visual decisions shared by the Desktop and Mobile interfaces. A design token is a named value such as `color.sys.light.action` or `space.md`; components depend on the role instead of repeating a raw color or dimension. Color follows a reference-to-system-to-component model: `color.ref` is the raw palette, `color.sys` assigns theme-aware meaning, and a component token is introduced only when a reusable component needs a decision that a system role cannot express. Application code consumes system or component roles and never consumes the reference palette directly.
+
+The source happens to use the DTCG JSON exchange format so the same decisions can move between code and design tools. DTCG is a storage contract, not Lode’s design methodology, information architecture, or review interface. The build enforces light/dark role parity and WCAG AA contrast for the core text, action, and status pairs before it emits either platform artifact.
+
+[`tokens/lode.tokens.json`](tokens/lode.tokens.json) is the source of truth. The build validates references and types, then generates typed JavaScript for React Native, a CSS-variable map for the Electron renderer, declarations, and a standalone CSS artifact. It also owns the shared window classes, grids, gutters, content measures, safe-area minimum, control sizes, focus stroke, opacity, shape, typography, and motion values. Generated files are not edited directly.
+
+The package also owns the unmodified HarmonyOS Sans SC font asset and its complete official license. Desktop and Mobile distribute the same source file; build tooling must not subset, convert, rename internally, or otherwise modify it. The applications expose the generated attribution and license text through their Legal surfaces.

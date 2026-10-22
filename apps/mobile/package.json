@@ -1,0 +1,40 @@
+{
+  "name": "@lode/app-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./engine-worker": "./dist/engine-worker/index.js"
+  },
+  "scripts": {
+    "build": "node scripts/build-web.mjs",
+    "build:web": "node scripts/build-web.mjs",
+    "build:android": "node ../../scripts/mobile/build-android.mjs",
+    "sync:android": "npm run build && cap sync android",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.5.1",
+    "@lode/engine": "file:../../packages/engine",
+    "@lode/engine-platform-mobile": "file:../../packages/engine-platform-mobile",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "@lode/application": "file:../../packages/application"
+  },
+  "devDependencies": {
+    "@capacitor/android": "8.5.1",
+    "@capacitor/cli": "8.5.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.5",
+    "@tailwindcss/cli": "^4.3.3",
+    "esbuild": "^0.28.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=22.11.0"
+  }
+}
