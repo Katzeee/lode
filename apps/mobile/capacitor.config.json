@@ -1,9 +1,0 @@
-{
-  "appId": "com.lode.mobile",
-  "appName": "Lode",
-  "webDir": "dist",
-  "android": {
-    "allowMixedContent": false
-  },
-  "loggingBehavior": "none"
-}
