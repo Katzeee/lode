@@ -1,3 +1,5 @@
+// Purpose: Configures repository lint rules for TypeScript source and tests.
+
 import eslint from "@eslint/js";
 import prettier from "eslint-config-prettier";
 import nodeImport from "eslint-plugin-node-import";
@@ -52,6 +54,16 @@ export default tseslint.config(
       "unicorn/prefer-ternary": "error",
       "unicorn/consistent-empty-array-spread": "error",
       "max-lines": ["error", { max: 300, skipBlankLines: true, skipComments: true }],
+    },
+  },
+  {
+    // node:test's `test()` returns a promise its runner awaits.
+    files: ["**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-floating-promises": [
+        "error",
+        { allowForKnownSafeCalls: [{ from: "package", package: "node:test", name: ["test", "describe", "it"] }] },
+      ],
     },
   },
 );

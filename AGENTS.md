@@ -18,7 +18,17 @@ adding an abstraction or removing one.
   each behavior it composes lives in its own searchable, cohesive module.
 - Fix a smell when you find it, with the right mechanism. Deferral compounds: code accretes around
   the smell and the fix only gets harder.
-- Comments explain why something is non-obvious.
+
+## Code comments
+
+- Comments and docstrings explain this project's semantics and design rationale; keep reference-project
+  names out of them, using "reference system" when a reference needs mentioning.
+- Every handwritten code file, including tests, scripts and executable configuration, starts with
+  `// Purpose: <One sentence describing this file's responsibility.>`, followed by a blank line. Use the
+  language's comment syntax and place it after a required shebang; test headers name the behavior
+  they guard.
+- Prefer self-explanatory code. Beyond the required file headers, keep comments sparse and reserve
+  them for non-obvious rationale.
 
 ## Present tense
 
@@ -27,30 +37,11 @@ otherwise, define the requested system as it should be now: move code, data form
 directly, and update every caller and generated contract in the same change. Old code paths,
 compat shims, alias re-exports, and migration paths have no reader to serve.
 
-## Module placement
-
-Every unit has exactly one home, decided by the concept that owns it, never by how many places use
-it. Ask in order:
-
-1. Does it carry a layer's semantics? → that layer; layers above import downward.
-2. Is it a cohesive substrate with no layer semantics (crypto, persistence, errors)? → its own
-   leaf, named for what it is. It earns the leaf by being a real module, not by being reused; a
-   `base/`, `shared/`, or `utils/` drawer is never a leaf.
-3. Is it a helper serving specific consumers? → it lives with the concept-closest consumer lower
-   in the dependency graph, so the other consumer imports it one-way downward. Colocate or
-   duplicate one-offs; extract a helper file only for a cohesive cluster.
-
-The **apex** (public entry and composition root) depends on everything and is depended on by
-nothing; it is the only code loose at `src` root.
-
-Resolve a bidirectional directory dependency at the concept boundary: move the bridging adapter to
-the concept-owning side, introduce a seam, or merge the directories.
-
 ## Tests
 
 A test earns its place by guarding what reading the code cannot confirm, such as convergence under
 concurrent edits or behavior a dependency upgrade could silently change. It sits beside its module
-as `<module>.test.ts` and opens with one line naming what it guards.
+as `<module>.test.ts`.
 
 ## Commits
 

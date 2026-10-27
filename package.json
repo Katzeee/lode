@@ -8,6 +8,9 @@
   "scripts": {
     "lint": "eslint . --no-error-on-unmatched-pattern",
     "lint:fix": "eslint . --fix --no-error-on-unmatched-pattern",
+    "typecheck": "pnpm -r --no-bail exec tsc -p tsconfig.json",
+    "test": "node --test \"packages/*/src/**/*.test.ts\"",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test",
     "prepare": "husky"
   },
   "lint-staged": {
