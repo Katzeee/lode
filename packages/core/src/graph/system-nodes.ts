@@ -6,7 +6,8 @@ import type { NodeId } from "../store/node-id.ts";
 /**
  * System roles are identities, not kinds. Containers hold the outline, deleted originals and
  * definitions; the definition roles mark supertags, field definitions and option fields, carry a
- * node's tags, and stand for the system empty value a projected empty field shows.
+ * node's tags, are every metanode's template, and stand for the system empty value a projected
+ * empty field shows.
  */
 export const SYSTEM_ROLES = [
   "root",
@@ -17,6 +18,7 @@ export const SYSTEM_ROLES = [
   "fieldDefinition",
   "options",
   "tags",
+  "metaTemplate",
   "emptyValue",
 ] as const;
 

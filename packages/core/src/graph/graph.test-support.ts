@@ -1,7 +1,7 @@
 // Purpose: Builds graph test replicas whose nodes carry support, with helpers to create and edit through commands.
 
 import { UndoManager, type LoroTreeNode } from "loro-crdt";
-import { allocate, type Allocation } from "../store/allocate.ts";
+import { allocate, type AllocatedRelation, type Allocation } from "../store/allocate.ts";
 import { nextCommandId, type CommandId } from "../store/command-id.ts";
 import { writeDocId, type DocId } from "../store/doc-id.ts";
 import type { NodeId } from "../store/node-id.ts";
@@ -9,15 +9,16 @@ import { COMMAND, EXCLUDED, GENESIS } from "../store/origins.ts";
 import { writeCreationFacts, writeListed, writeSupport } from "../store/records.ts";
 import { Store } from "../store/store.ts";
 import type { Graph } from "./graph.ts";
-import { systemNodes } from "./system-nodes.ts";
+import { SYSTEM_ROLES, systemNodes, type SystemRole } from "./system-nodes.ts";
 
 export type Replica = Graph & { undo: UndoManager };
 
 const DOC = "doc" as DocId;
 const BASE_PEER = 90n;
 
-/** Test ids are plain names; `trash` names the workspace's Trash. */
-export const id = (name: string) => (name === "trash" ? systemNodes(DOC).trash : name) as NodeId;
+/** Test ids are plain names; a system role's name, such as `trash`, names that system node. */
+export const id = (name: string) =>
+  ((SYSTEM_ROLES as readonly string[]).includes(name) ? systemNodes(DOC)[name as SystemRole] : name) as NodeId;
 
 /**
  * Replicas forked from one base holding Trash and `nodes`, each supported by a peer no replica uses,
@@ -50,11 +51,19 @@ export function replicas(nodes: { name: string; parent?: string; listed?: boolea
   });
 }
 
-/** One command: allocates `nodes`, then supports them and runs `write`, as one undo step. */
-export function command(r: Replica, nodes: Allocation[], write: (command: CommandId) => void = () => {}): CommandId {
+/**
+ * One command: allocates `nodes` with `relations` toward them, then supports them and runs `write`, as
+ * one undo step.
+ */
+export function command(
+  r: Replica,
+  nodes: Allocation[],
+  write: (command: CommandId) => void = () => {},
+  relations: AllocatedRelation[] = [],
+): CommandId {
   const commandId = nextCommandId(r.store.doc);
   if (nodes.length > 0) {
-    allocate(r.store, commandId, nodes);
+    allocate(r.store, commandId, nodes, relations);
   }
   for (const spec of nodes) {
     writeSupport(r.store.node(spec.id), commandId);

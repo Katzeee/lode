@@ -2,6 +2,7 @@
 
 import type { NodeId } from "../store/node-id.ts";
 import { descriptionOf, nameOf } from "../store/records.ts";
+import { hasName } from "./content.ts";
 import type { Graph } from "./graph.ts";
 import { effectiveMetanode, metanodeTargets } from "./metanode.ts";
 import { listedNodes } from "./occurrences.ts";
@@ -101,11 +102,6 @@ function tupleValueMap(graph: Graph, children: readonly NodeId[]): Map<NodeId, N
     }
   }
   return values;
-}
-
-function hasName(graph: Graph, id: NodeId): boolean {
-  const node = graph.store.find(id);
-  return node !== undefined && nameOf(node).length > 0;
 }
 
 function exists(graph: Graph, id: NodeId): boolean {
