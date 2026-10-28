@@ -1,6 +1,7 @@
 // Purpose: Provides workspace storage access to the document, node tree and reference leaves.
 
 import { LoroDoc, type LoroTree, type LoroTreeNode } from "loro-crdt";
+import { HolderIndex } from "./holder-index.ts";
 import { Locator } from "./locator.ts";
 import type { NodeId } from "./node-id.ts";
 import { idOf, refOf, writeRef } from "./records.ts";
@@ -9,18 +10,20 @@ import { configureText } from "./text.ts";
 const TREE = "nodes";
 
 /**
- * One workspace document as storage: the Loro document, its node tree, and the NodeId index. Only
+ * One workspace document as storage: the Loro document, its node tree, and its derived indexes. Only
  * `store/` knows how the model's facts are encoded as tree positions and map keys.
  */
 export class Store {
   readonly doc: LoroDoc;
   readonly tree: LoroTree;
+  readonly holders: HolderIndex;
   readonly #locator: Locator;
 
   constructor(doc: LoroDoc) {
     this.doc = doc;
     this.tree = doc.getTree(TREE);
     this.#locator = new Locator(doc, this.tree);
+    this.holders = new HolderIndex(this, doc);
   }
 
   /** A document with text styles configured, as every replica must have before it reads or writes. */

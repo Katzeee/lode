@@ -20,11 +20,11 @@ for (const [peerA, peerB] of [
       const snapshot = base([{ id: "H" }]);
       const a = replica(peerA!, snapshot);
       const b = replica(peerB!, snapshot);
-      command(b, (id) => writeRelation(node(b, "H"), META, id));
+      command(b, (id) => writeRelation(b.store, node(b, "H"), META, id));
       sync(a, b);
 
-      command(a, () => deleteRelationRecords(node(a, "H"), relationRecords(node(a, "H"))));
-      command(b, (id) => writeRelation(node(b, "H"), META, id));
+      command(a, () => deleteRelationRecords(a.store, node(a, "H"), relationRecords(node(a, "H"))));
+      command(b, (id) => writeRelation(b.store, node(b, "H"), META, id));
       if (removerFirst) {
         send(a, b);
         send(b, a);
@@ -41,8 +41,8 @@ for (const [peerA, peerB] of [
 
 test("one peer's sequential commands leave one key, and undo and redo step through them", () => {
   const a = replica(1n, base([{ id: "H" }]));
-  const first = command(a, (id) => writeRelation(node(a, "H"), META, id));
-  const second = command(a, (id) => writeRelation(node(a, "H"), META, id));
+  const first = command(a, (id) => writeRelation(a.store, node(a, "H"), META, id));
+  const second = command(a, (id) => writeRelation(a.store, node(a, "H"), META, id));
   const commands = () => relationRecords(node(a, "H")).map((record) => record.command);
 
   deepStrictEqual(commands(), [second]);

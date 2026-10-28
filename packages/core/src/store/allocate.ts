@@ -42,7 +42,7 @@ export function allocate(
     created.set(spec.id, node);
   }
   for (const { host, relation } of relations) {
-    writeRelation(resolve(host), relation, command);
+    writeRelation(store, resolve(host), relation, command);
   }
   store.doc.commit({ origin: ALLOCATION });
 }
