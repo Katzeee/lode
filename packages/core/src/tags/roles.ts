@@ -22,5 +22,10 @@ export function isFieldDefinition(graph: Graph, node: NodeId): boolean {
  */
 export function hasValidTemplate(graph: Graph, node: NodeId): boolean {
   const first = template(graph, node);
-  return first !== undefined && isSupertag(graph, first) && hasName(graph, first);
+  return first !== undefined && isNamedSupertag(graph, first);
+}
+
+/** What the content gate asks of a node's first template. */
+export function isNamedSupertag(graph: Graph, tag: NodeId): boolean {
+  return isSupertag(graph, tag) && hasName(graph, tag);
 }

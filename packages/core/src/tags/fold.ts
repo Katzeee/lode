@@ -27,49 +27,65 @@ export function applications(graph: Graph, metanode: NodeId): NodeId[] {
   );
 }
 
+/** How the fold compares, classifies and tests the values it folds, whatever they are. */
+export type FoldValues<V> = {
+  same(a: V, b: V): boolean;
+  isReference(value: V): boolean;
+  isEmpty(value: V): boolean;
+};
+
+/**
+ * Folds applications into one list of values, each with every contribution to it, first contribution
+ * first. The first application is the seed, read as stored even when it holds no value; each later
+ * value is added as adding a tag adds it. An empty first value is replaced first, so an empty value
+ * never hides another replica's tags behind the first-value gate; otherwise a reference to a value
+ * already present only adds a contribution, and anything else is appended.
+ */
+export function foldApplications<V>(applicationValues: readonly (readonly V[])[], values: FoldValues<V>): V[][] {
+  const folded: V[][] = [];
+  applicationValues.forEach((list, index) => {
+    for (const value of list) {
+      if (index === 0) {
+        folded.push([value]);
+      } else {
+        add(folded, value, values);
+      }
+    }
+  });
+  return folded;
+}
+
+function add<V>(folded: V[][], value: V, values: FoldValues<V>): void {
+  const index = values.isReference(value) ? folded.findIndex((group) => values.same(group[0]!, value)) : -1;
+  const group = index === -1 ? [value] : [...folded[index]!, value];
+  const first = folded[0];
+  if (first !== undefined && values.isEmpty(first[0]!)) {
+    // The value takes the empty first place; an earlier listing of the same node merges into it.
+    if (index > 0) {
+      folded.splice(index, 1);
+    }
+    folded[0] = group;
+  } else if (index === -1) {
+    folded.push(group);
+  } else {
+    folded[index] = group;
+  }
+}
+
 /**
  * The raw tag values of `host`, unfiltered. Serially this is its one application's values. Concurrent
  * first writes can leave several applications, across the metanodes `host` owns (smallest first) and
- * within one (list order). The first application is read as stored, even when it holds no value; each
- * later value is added as adding a tag adds it. An empty first value is replaced first, so an empty
- * value never hides another replica's tags behind the first-value gate; otherwise a reference to a
- * node already present only adds provenance, and anything else is appended.
+ * within one (list order); they are folded together.
  */
 export function rawTagValues(graph: Graph, host: NodeId): TagValue[] {
-  const values: TagValue[] = [];
-  let seed: NodeId | undefined;
-  for (const metanode of ownedMetanodes(graph, host)) {
-    for (const application of applications(graph, metanode)) {
-      seed ??= application;
-      for (const occurrence of tupleValues(graph, application)) {
-        const provenance = { application, occurrence };
-        if (application === seed) {
-          values.push({ node: occurrence.node, provenance: [provenance] });
-        } else {
-          add(graph, values, occurrence, provenance);
-        }
-      }
-    }
-  }
-  return values;
-}
-
-function add(graph: Graph, values: TagValue[], occurrence: Occurrence, provenance: TagProvenance): void {
-  const index = occurrence.link === "reference" ? values.findIndex((value) => value.node === occurrence.node) : -1;
-  const value: TagValue =
-    index === -1
-      ? { node: occurrence.node, provenance: [provenance] }
-      : { node: occurrence.node, provenance: [...values[index]!.provenance, provenance] };
-  const first = values[0];
-  if (first !== undefined && isEmpty(graph, first.node)) {
-    // The value takes the empty first place; an earlier listing of the same node merges into it.
-    if (index > 0) {
-      values.splice(index, 1);
-    }
-    values[0] = value;
-  } else if (index === -1) {
-    values.push(value);
-  } else {
-    values[index] = value;
-  }
+  const lists = ownedMetanodes(graph, host).flatMap((metanode) =>
+    applications(graph, metanode).map((application) =>
+      tupleValues(graph, application).map((occurrence) => ({ application, occurrence })),
+    ),
+  );
+  return foldApplications<TagProvenance>(lists, {
+    same: (a, b) => a.occurrence.node === b.occurrence.node,
+    isReference: (value) => value.occurrence.link === "reference",
+    isEmpty: (value) => isEmpty(graph, value.occurrence.node),
+  }).map((group) => ({ node: group[0]!.occurrence.node, provenance: group }));
 }
