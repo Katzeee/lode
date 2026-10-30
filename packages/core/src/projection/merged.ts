@@ -8,6 +8,7 @@ import { showsAsEmptyField } from "./empty-field.ts";
 import { project } from "./proxy.ts";
 import { childrenOf, definitionAt, isTupleAt, kindAt, nameKey, ownerAt, sourceAt, type Line } from "./readers.ts";
 import { templateAt, templateSourcesAt } from "./tag-reads.ts";
+import { resolveAddress } from "./resolve.ts";
 
 /**
  * Which reader builds the list. The outline reader collects sources in outline order and also matches
@@ -119,6 +120,7 @@ function localMaps(graph: Graph, children: readonly Line[], reader: MergeReader)
  * earlier one is skipped; the later source wins a key.
  */
 export function mergedList(graph: Graph, instance: NodeAddress, reader: MergeReader): MergedEntry[] {
+  instance = resolveAddress(graph, instance);
   const order = reader.kind === "outline" ? "outline" : "initialization";
   const collected = collect(graph, templateSourcesAt(graph, instance, order));
   const { bySource, byField, byName } = localMaps(graph, childrenOf(graph, instance), reader);

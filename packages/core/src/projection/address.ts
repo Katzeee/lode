@@ -55,3 +55,20 @@ export function sameAddress(a: NodeAddress | undefined, b: NodeAddress | undefin
 export function storedNode(address: NodeAddress): NodeId {
   return isProjected(address) ? storedNode(address.source) : address;
 }
+
+/**
+ * The derived NodeId of a projection's first copy, `~(instance,source)` plus the root in empty-field
+ * mode, each part a stored id or such an encoding, so equal identities give one id and replicas
+ * materializing one projection concurrently create one node. A nested part that already reads as its
+ * first copy encodes to the same text, so an id does not depend on which layer was copied first.
+ * Separate from `addressKey`, which only matches and deduplicates within reads: a NodeId may be any
+ * text a name can also hold. One-way: nothing decodes it.
+ */
+export function copyId(address: Projected): NodeId {
+  const part = (each: NodeAddress): string => (isProjected(each) ? copyId(each) : each);
+  const parts = [part(address.instance), part(address.source)];
+  if (address.mode === "emptyField") {
+    parts.push(part(address.root));
+  }
+  return `~(${parts.join(",")})` as NodeId;
+}

@@ -2,7 +2,7 @@
 
 import type { NodeId } from "../store/node-id.ts";
 import { descriptionOf } from "../store/records.ts";
-import { hasName } from "./content.ts";
+import { hasName, nameString } from "./content.ts";
 import type { Graph } from "./graph.ts";
 import { effectiveMetanode } from "./metanode.ts";
 import { listedNodes } from "./occurrences.ts";
@@ -45,12 +45,11 @@ export function holderIsEmpty(graph: Graph, holder: NodeId): boolean {
   if (!exists(graph, holder)) {
     return false;
   }
-  const node = graph.store.node(holder);
   const metanode = effectiveMetanode(graph, holder);
   return (
     listedNodes(graph, holder).length === 0 &&
-    graph.store.name(holder).toString().trim() === "" &&
-    (descriptionOf(node)?.trim() ?? "") === "" &&
+    nameString(graph, holder).trim() === "" &&
+    (descriptionOf(graph.store, holder)?.trim() ?? "") === "" &&
     liveAssocRecords(graph, holder).length === 0 &&
     (metanode === undefined || listedNodes(graph, metanode).length === 0)
   );
@@ -101,5 +100,5 @@ function tupleValueMap(graph: Graph, children: readonly NodeId[]): Map<NodeId, N
 }
 
 function exists(graph: Graph, id: NodeId): boolean {
-  return graph.store.find(id) !== undefined;
+  return graph.store.has(id);
 }

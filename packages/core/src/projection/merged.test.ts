@@ -5,12 +5,13 @@ import { test } from "node:test";
 import { writeSupport } from "../store/records.ts";
 import { insertListing } from "../store/listings.ts";
 import { writeMention } from "../store/text.ts";
-import { child, command, id, node, replicas } from "../graph/graph.test-support.ts";
+import { child, command, id, replicas } from "../graph/graph.test-support.ts";
 import { name, tag } from "../tags/tags.test-support.ts";
 import { addressKey } from "./address.ts";
 import { mergedList } from "./merged.ts";
 import { outlineLines } from "./outline.ts";
 import { children, field, nameAs, template } from "./projection.test-support.ts";
+import { writableName } from "../graph/content.ts";
 
 const lineKeys = (lines: { node: Parameters<typeof addressKey>[0] }[]) => lines.map((line) => addressKey(line.node));
 
@@ -96,10 +97,10 @@ test("formatted text never matches literal text that spells the format; equal ri
       ["alsoBold", "y"],
       ["sameBold", "y"],
     ]) {
-      r!.store.name(id(each!)).insert(0, text!);
+      writableName(r!, id(each!)).insert(0, text!);
     }
     for (const each of ["bold", "alsoBold", "sameBold"]) {
-      r!.store.name(id(each)).mark({ start: 0, end: 1 }, "bold", true);
+      writableName(r!, id(each)).mark({ start: 0, end: 1 }, "bold", true);
     }
   });
   tag(r!, "I", ["A"]);
@@ -126,15 +127,15 @@ test("each adjacent inline mention or date is its own position in a name", () =>
         ["twoToo", 2],
       ] as const) {
         for (let index = 0; index < count; index++) {
-          writeMention(r!.store.name(id(each)), index, id("X"));
+          writeMention(writableName(r!, id(each)), index, id("X"));
         }
       }
       for (const [each, count] of [
         ["dates", 2],
         ["date", 1],
       ] as const) {
-        r!.store.name(id(each)).insert(0, "\uFFFC".repeat(count));
-        r!.store.name(id(each)).mark({ start: 0, end: count }, "date", "2026-10-28");
+        writableName(r!, id(each)).insert(0, "\uFFFC".repeat(count));
+        writableName(r!, id(each)).mark({ start: 0, end: count }, "date", "2026-10-28");
       }
     },
   );
@@ -157,7 +158,7 @@ test("a template's reference to a workspace container shows its target; one to a
   command(r!, [], (cmd) => {
     insertListing(r!.store, id("A"), id("home"), 0);
     insertListing(r!.store, id("A"), id("supertag"), 1);
-    writeSupport(node(r!, "A"), cmd);
+    writeSupport(r!.store, id("A"), cmd);
   });
   tag(r!, "I", ["A"]);
   deepStrictEqual(

@@ -27,7 +27,9 @@ observable effect it produces. Before reproducing anything, classify each requir
 
 - **Observable (A)**: what one user's sequential operations show in the UI or an export. Match it. It
   counts as observable only with evidence that a serial path reaches it (an export, a reproducible UI
-  path, or a source call path); without that it stays unclassified until checked.
+  path, or a source call path); without that it stays unclassified until checked. A **defect** is
+  observable behaviour that works against the user, such as a write that shows nothing or a change the
+  user cannot revert or remove; correct it with the result the user evidently intended.
 - **Mechanism (B)**: how the reference system produces a result (ghost proxies, in-memory ids,
   children arrays, separate files, single-transaction undo). Replace it with a CRDT-native
   representation whenever the observable results stay the same.
@@ -38,6 +40,11 @@ A copied mechanism earns its place only through an observable effect it alone pr
 effect appears only in edge structures, weigh it against the mechanism's cost and record an explicit
 deviation instead of copying the mechanism. A review finding is checked against this classification
 before it is fixed.
+
+Every intentional difference from the reference system's observable behaviour, a defect correction or
+a recorded deviation, carries a comment where it is implemented: it names the difference as
+intentional, states the reference result, and gives the reason for Lode's choice. The test that pins
+the difference names it the same way.
 
 ## Code comments
 

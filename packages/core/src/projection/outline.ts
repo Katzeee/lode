@@ -5,6 +5,7 @@ import { addressKey, isProjected, sameAddress, type NodeAddress } from "./addres
 import { mergedList, type MergedEntry } from "./merged.ts";
 import { childrenOf, ownerAt, type Line } from "./readers.ts";
 import { hasValidTemplateAt, templateSourcesAt } from "./tag-reads.ts";
+import { resolveAddress } from "./resolve.ts";
 
 /** An outline line, with the template child it stands for when it comes from the merged list. */
 export type OutlineLine = Line & { template?: NodeAddress };
@@ -15,6 +16,7 @@ export type OutlineLine = Line & { template?: NodeAddress };
  * children.
  */
 export function outlineLines(graph: Graph, node: NodeAddress): OutlineLine[] {
+  node = resolveAddress(graph, node);
   const own = childrenOf(graph, node);
   if (!hasValidTemplateAt(graph, node)) {
     return own;

@@ -1,17 +1,19 @@
-// Purpose: Guards one-to-one association reads under concurrent records and the holder index across imports.
+// Purpose: Guards one-to-one association reads under concurrent records, the holder index across imports, and records naming a subject with no incarnation yet.
 
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
 import { deleteRelationRecords, relationRecords, writeRelation } from "../store/relations.ts";
 import { writeSupport } from "../store/records.ts";
 import {
+  associatedSubjects,
   candidateHolders,
   effectiveHolder,
   effectivePair,
   liveHolderRecords,
   unadoptedRecords,
 } from "./associations.ts";
-import { command, id, node, replicas, sync, type Replica } from "./graph.test-support.ts";
+import { command, id, replicas, type Replica } from "./graph.test-support.ts";
+import { sync } from "../store/replicas.test-support.ts";
 import { Store } from "../store/store.ts";
 
 const assoc = (subject: string, holder: string) => ({
@@ -22,8 +24,8 @@ const assoc = (subject: string, holder: string) => ({
 
 function associate(r: Replica, host: string, subject: string, holder: string): void {
   command(r, [], (cmd) => {
-    writeRelation(r.store, node(r, host), assoc(subject, holder), cmd);
-    writeSupport(node(r, host), cmd);
+    writeRelation(r.store, id(host), assoc(subject, holder), cmd);
+    writeSupport(r.store, id(host), cmd);
   });
 }
 
@@ -56,8 +58,8 @@ test("two holders for one pair: the smallest is effective, and the next takes ov
   command(a!, [], () =>
     deleteRelationRecords(
       a!.store,
-      node(a!, "H"),
-      relationRecords(node(a!, "H")).filter((record) => record.type === "assoc" && record.holder === id("K1")),
+      id("H"),
+      relationRecords(a!.store, id("H")).filter((record) => record.type === "assoc" && record.holder === id("K1")),
     ),
   );
   sync(a!, b!);
@@ -70,10 +72,10 @@ test("two holders for one pair: the smallest is effective, and the next takes ov
 test("records with the same key on two hosts are indexed apart, and a rebuilt index reads the same", () => {
   const [r] = replicas([{ name: "H1" }, { name: "H2" }, { name: "S" }, { name: "K" }]);
   command(r!, [], (cmd) => {
-    writeRelation(r!.store, node(r!, "H1"), assoc("S", "K"), cmd);
-    writeRelation(r!.store, node(r!, "H2"), assoc("S", "K"), cmd);
-    writeSupport(node(r!, "H1"), cmd);
-    writeSupport(node(r!, "H2"), cmd);
+    writeRelation(r!.store, id("H1"), assoc("S", "K"), cmd);
+    writeRelation(r!.store, id("H2"), assoc("S", "K"), cmd);
+    writeSupport(r!.store, id("H1"), cmd);
+    writeSupport(r!.store, id("H2"), cmd);
   });
   const hosts = (g: Replica) =>
     liveHolderRecords(g, id("K"))
@@ -81,7 +83,7 @@ test("records with the same key on two hosts are indexed apart, and a rebuilt in
       .sort();
   deepStrictEqual(hosts(r!), [id("H1"), id("H2")]);
 
-  command(r!, [], () => deleteRelationRecords(r!.store, node(r!, "H1"), relationRecords(node(r!, "H1"))));
+  command(r!, [], () => deleteRelationRecords(r!.store, id("H1"), relationRecords(r!.store, id("H1"))));
   deepStrictEqual(hosts(r!), [id("H2")]);
   strictEqual(effectiveHolder(r!, id("H2"), id("S")), id("K"));
 
@@ -93,14 +95,14 @@ test("records with the same key on two hosts are indexed apart, and a rebuilt in
 test("association reads agree in both directions before the command commits", () => {
   const [r] = replicas([{ name: "H" }, { name: "S" }, { name: "K" }]);
   command(r!, [], (cmd) => {
-    writeRelation(r!.store, node(r!, "H"), assoc("S", "K"), cmd);
-    writeSupport(node(r!, "H"), cmd);
+    writeRelation(r!.store, id("H"), assoc("S", "K"), cmd);
+    writeSupport(r!.store, id("H"), cmd);
     strictEqual(effectiveHolder(r!, id("H"), id("S")), id("K"), "added, uncommitted");
   });
   strictEqual(effectiveHolder(r!, id("H"), id("S")), id("K"), "added, committed");
 
   command(r!, [], () => {
-    deleteRelationRecords(r!.store, node(r!, "H"), relationRecords(node(r!, "H")));
+    deleteRelationRecords(r!.store, id("H"), relationRecords(r!.store, id("H")));
     strictEqual(effectiveHolder(r!, id("H"), id("S")), undefined, "removed, uncommitted");
     strictEqual(liveHolderRecords(r!, id("K")).length, 0);
   });
@@ -108,4 +110,14 @@ test("association reads agree in both directions before the command commits", ()
 
   r!.undo.undo();
   strictEqual(effectiveHolder(r!, id("H"), id("S")), id("K"), "undo re-reads the host");
+});
+
+test("a record naming a subject not yet allocated is live, so its holder is found and enumerated", () => {
+  const [r] = replicas([{ name: "H" }, { name: "K", parent: "H", listed: false }]);
+  associate(r!, "H", "~(I,S)", "K");
+  strictEqual(r!.store.has(id("~(I,S)")), false);
+  deepStrictEqual(
+    [effectiveHolder(r!, id("H"), id("~(I,S)")), associatedSubjects(r!, id("H"))],
+    [id("K"), [id("~(I,S)")]],
+  );
 });

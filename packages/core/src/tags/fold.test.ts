@@ -3,7 +3,8 @@
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
 import { insertListing } from "../store/listings.ts";
-import { child, command, id, replicas, sync, type Replica } from "../graph/graph.test-support.ts";
+import { child, command, id, replicas, type Replica } from "../graph/graph.test-support.ts";
+import { sync } from "../store/replicas.test-support.ts";
 import { rawTagValues } from "./fold.ts";
 import { hasValidTemplate } from "./roles.ts";
 import { supertags, tag } from "./tags.test-support.ts";

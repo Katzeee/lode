@@ -1,51 +1,54 @@
 // Purpose: Decides whether a node is present and reads the facts presence gates, such as its owner and kind.
 
-import type { LoroTreeNode } from "loro-crdt";
 import type { NodeId } from "../store/node-id.ts";
-import { kindOf, sourceOf, supportsOf, tupleDefinitionIdOf, type Kind } from "../store/records.ts";
-import { parentIdOf, treeChildren } from "../store/store.ts";
+import { hasSupport, kindOf, sourceOf, tupleDefinitionIdOf, type Kind } from "../store/records.ts";
 import type { Graph } from "./graph.ts";
 
 /**
- * A node is present while some command supports it, directly or through a present descendant. Undoing
- * a creation removes the creator's support; another replica's support, or a supported descendant,
- * keeps the node and its creation facts readable. Presence is closed upward: a present node's parent
- * is present.
+ * A node is present while some command supports it, directly or through a node it physically owns:
+ * the least set holding every supported node and closed under physical owner. Undoing a creation
+ * removes the creator's support; another replica's support, or a supported owned node, keeps the node
+ * and its creation facts readable. A present node's physical owner is therefore present. Read from
+ * the document each time, so a command's uncommitted support and moves count at once. Concurrent
+ * incarnations can form an ownership cycle; each query keeps its own visited set, so a cycle ends and
+ * reads present exactly when something supported hangs in it.
  */
 export function isPresent(graph: Graph, id: NodeId): boolean {
-  const node = graph.store.find(id);
-  return node !== undefined && supported(node);
+  return graph.store.has(id) && reachesSupport(graph, id, new Set());
 }
 
-function supported(node: LoroTreeNode): boolean {
-  return supportsOf(node).size > 0 || treeChildren(node).some(supported);
+function reachesSupport(graph: Graph, id: NodeId, visited: Set<NodeId>): boolean {
+  if (visited.has(id)) {
+    return false;
+  }
+  visited.add(id);
+  return (
+    hasSupport(graph.store, id) ||
+    graph.store.ownership.ownedIds(id).some((owned) => reachesSupport(graph, owned, visited))
+  );
 }
 
 /**
  * The owner a read sees. A node that is not present reads as an undone creation: owned by Trash,
- * whatever its physical parent. A node not in this document has no known owner.
+ * whatever its physical owner. A node not in this document has no known owner.
  */
 export function ownerOf(graph: Graph, id: NodeId): NodeId | undefined {
-  const node = graph.store.find(id);
-  if (!node) {
+  if (!graph.store.has(id)) {
     return undefined;
   }
-  return supported(node) ? parentIdOf(node) : graph.system.trash;
+  return isPresent(graph, id) ? graph.store.ownership.physicalOwner(id) : graph.system.trash;
 }
 
 /** Kind and tuple definition are creation facts, absent while the node is not present. */
 export function kindRead(graph: Graph, id: NodeId): Kind | undefined {
-  const node = graph.store.find(id);
-  return node && supported(node) ? kindOf(node) : undefined;
+  return isPresent(graph, id) ? kindOf(graph.store, id) : undefined;
 }
 
 export function tupleDefinitionRead(graph: Graph, id: NodeId): NodeId | undefined {
-  const node = graph.store.find(id);
-  return node && supported(node) ? tupleDefinitionIdOf(node) : undefined;
+  return isPresent(graph, id) ? tupleDefinitionIdOf(graph.store, id) : undefined;
 }
 
 /** The source stays readable after an undone creation: the reference system keeps it then too. */
 export function sourceRead(graph: Graph, id: NodeId): NodeId | undefined {
-  const node = graph.store.find(id);
-  return node && sourceOf(node);
+  return sourceOf(graph.store, id);
 }

@@ -1,14 +1,16 @@
 // Purpose: Writes a workspace's system nodes identically on every replica, so merging yields one set.
 
-import type { LoroDoc, LoroTreeNode } from "loro-crdt";
+import type { LoroDoc } from "loro-crdt";
 import { systemNodes, type SystemNodes, type SystemRole } from "../graph/system-nodes.ts";
+import { writeAllocation } from "../store/allocate.ts";
 import { nextCommandId, type CommandId } from "../store/command-id.ts";
+import { applicationId, metanodeId } from "../store/derived-id.ts";
 import { readDocId, writeDocId, type DocId } from "../store/doc-id.ts";
 import { GENESIS } from "../store/origins.ts";
 import { insertListing } from "../store/listings.ts";
-import { writeCreationFacts, writeSupport, type Kind } from "../store/records.ts";
+import { writeSupport, type Kind } from "../store/records.ts";
+import { nameText } from "../store/text.ts";
 import type { NodeId } from "../store/node-id.ts";
-import { writeRelation } from "../store/relations.ts";
 import { Store } from "../store/store.ts";
 
 /** Reserved for genesis; no replica is ever leased this peer id. */
@@ -56,50 +58,41 @@ export function genesis(docId: DocId): LoroDoc {
   const ids = systemNodes(docId);
   const command = nextCommandId(doc);
   writeDocId(doc, docId);
-  // Nodes written in this one transaction are not indexed until it commits.
-  const written = new Map<SystemRole, LoroTreeNode>();
-  for (const spec of SPECS) {
-    const parent = spec.parent && written.get(spec.parent);
-    const node = parent ? parent.createNode() : store.tree.createNode();
-    writeCreationFacts(node, { id: ids[spec.role], kind: spec.kind });
-    if (spec.parent) {
-      if (spec.listed) {
-        insertListing(store, ids[spec.parent], ids[spec.role]);
-      }
+  for (const { role, parent, listed = false, kind, name, tag } of SPECS) {
+    const id = ids[role];
+    writeAllocation(store, command, [{ id, parent: parent && ids[parent], listed, kind }]);
+    // System nodes are named directly: they are not copies, so they have no name base.
+    if (name) {
+      nameText(store, id).insert(0, name);
     }
-    if (spec.name) {
-      store.name(ids[spec.role]).insert(0, spec.name);
-    }
-    writeSupport(node, command);
-    written.set(spec.role, node);
-    if (spec.tag) {
-      writeTag(store, node, ids[spec.role], ids, ids[spec.tag], command);
+    writeSupport(store, id, command);
+    if (tag) {
+      writeTag(store, id, ids, ids[tag], command);
     }
   }
   doc.commit({ origin: GENESIS, timestamp: 0 });
   return doc;
 }
 
-/** A metanode under `host` whose application holds one reference to `tag`, all under fixed ids. */
-function writeTag(
-  store: Store,
-  host: LoroTreeNode,
-  hostId: NodeId,
-  ids: SystemNodes,
-  tag: NodeId,
-  command: CommandId,
-): void {
-  const metanodeId = `${hostId}:meta` as NodeId;
-  const metanode = host.createNode();
-  writeCreationFacts(metanode, { id: metanodeId, kind: "metanode" });
-  writeSupport(metanode, command);
-  writeRelation(store, host, { type: "meta", target: metanodeId }, command);
-  const applicationId = `${metanodeId}:tags` as NodeId;
-  const application = metanode.createNode();
-  writeCreationFacts(application, { id: applicationId, kind: "tuple", tupleDefinitionId: ids.tags });
-  insertListing(store, metanodeId, applicationId);
-  writeSupport(application, command);
-  insertListing(store, applicationId, tag);
+/**
+ * A metanode under `host` whose application holds one reference to `tag`, under the first generation
+ * of the derived ids every metanode and application takes.
+ */
+function writeTag(store: Store, host: NodeId, ids: SystemNodes, tag: NodeId, command: CommandId): void {
+  const metanode = metanodeId(host);
+  const application = applicationId(metanode);
+  writeAllocation(
+    store,
+    command,
+    [
+      { id: metanode, parent: host, listed: false, kind: "metanode" },
+      { id: application, parent: metanode, listed: true, kind: "tuple", tupleDefinitionId: ids.tags },
+    ],
+    [{ host, relation: { type: "meta", target: metanode } }],
+  );
+  writeSupport(store, metanode, command);
+  writeSupport(store, application, command);
+  insertListing(store, application, tag);
 }
 
 /** The system nodes of a document genesis wrote. */

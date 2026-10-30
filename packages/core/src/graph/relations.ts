@@ -3,7 +3,7 @@
 import type { NodeId } from "../store/node-id.ts";
 import { relationRecords, type RelationRecord } from "../store/relations.ts";
 import type { Graph } from "./graph.ts";
-import { isPresent, ownerOf } from "./presence.ts";
+import { isPresent } from "./presence.ts";
 
 export type MetaRecord = RelationRecord & { type: "meta" };
 export type AssocRecord = RelationRecord & { type: "assoc" };
@@ -14,17 +14,17 @@ export type AssocRecord = RelationRecord & { type: "assoc" };
  * so Redo needs no rewrite either. This covers an undone creation of a host together with its
  * metanode, whose raw pointer the reference system keeps while both sit in Trash. A metanode pointer
  * is also live only while its host owns the metanode: Lode's policy for competing pointers left by
- * concurrent edits treats a pointer to a target owned elsewhere as cleared.
+ * concurrent edits treats a pointer to a target owned elsewhere as cleared. An association's subject
+ * is only named, never read, so a record may name a subject this replica has not allocated.
  */
 export function isLive(graph: Graph, host: NodeId, record: RelationRecord): boolean {
   const target = record.type === "meta" ? record.target : record.holder;
-  const owned = record.type !== "meta" || ownerOf(graph, target) === host;
+  const owned = record.type !== "meta" || graph.store.ownership.physicalOwner(target) === host;
   return isPresent(graph, host) && isPresent(graph, target) && owned;
 }
 
 export function liveRecords(graph: Graph, host: NodeId): RelationRecord[] {
-  const node = graph.store.find(host);
-  return node ? relationRecords(node).filter((record) => isLive(graph, host, record)) : [];
+  return relationRecords(graph.store, host).filter((record) => isLive(graph, host, record));
 }
 
 export function liveMetaRecords(graph: Graph, host: NodeId): MetaRecord[] {

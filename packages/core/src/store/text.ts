@@ -2,6 +2,7 @@
 
 import type { Delta, LoroDoc, LoroText } from "loro-crdt";
 import type { NodeId } from "./node-id.ts";
+import type { Store } from "./store.ts";
 
 /**
  * Text marks. A mark's expand behavior comes from the local configuration, not the document, so
@@ -41,17 +42,27 @@ export type Run = {
   date?: string;
 };
 
-export function runs(text: LoroText): Run[] {
-  return text.toDelta().map(toRun);
+/**
+ * The stored text of a node's name: the root text `name:<NodeId>`, never a container in a tree node's
+ * map, because undoing an edit there breaks after a remote tree operation in loro-crdt 1.17.1. A root
+ * text needs no creation operation, so no two replicas race to create it, and every incarnation
+ * shares it. Readers and edits go through `graph/content`: a copy's name is not its text until seeded.
+ */
+export function nameText(store: Store, id: NodeId): LoroText {
+  return store.doc.getText(`name:${id}`);
+}
+
+export function runs(name: readonly Delta<string>[]): Run[] {
+  return name.map(toRun);
 }
 
 export type InlineMention = { index: number; target: NodeId };
 
 /** Every mention position, repeated mentions of one target included. */
-export function inlineMentions(text: LoroText): InlineMention[] {
+export function inlineMentions(name: readonly Delta<string>[]): InlineMention[] {
   const mentions: InlineMention[] = [];
   let index = 0;
-  for (const delta of text.toDelta()) {
+  for (const delta of name) {
     const inserted = typeof delta.insert === "string" ? delta.insert : "";
     const target = delta.attributes?.ref;
     if (typeof target === "string") {
@@ -70,9 +81,9 @@ export function writeMention(text: LoroText, index: number, target: NodeId): voi
   text.mark({ start: index, end: index + 1 }, "ref", target);
 }
 
-/** The text from `start` to the end, marks included, as a delta another text can apply. */
-export function tail(text: LoroText, start: number): Delta<string>[] {
-  return start >= text.length ? [] : text.sliceDelta(start, text.length);
+/** The length of a name in UTF-16 code units, inline anchors included. */
+export function nameLength(name: readonly Delta<string>[]): number {
+  return name.reduce((length, delta) => length + (typeof delta.insert === "string" ? delta.insert.length : 0), 0);
 }
 
 function toRun(delta: Delta<string>): Run {

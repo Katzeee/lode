@@ -5,6 +5,7 @@ import type { Graph } from "../graph/graph.ts";
 import { storedNode, type NodeAddress } from "./address.ts";
 import { childrenOf, definitionAt, isTupleAt, kindAt } from "./readers.ts";
 import { isSupertagAt, templateAt } from "./tag-reads.ts";
+import { resolveAddress } from "./resolve.ts";
 
 /**
  * A template field shows as an empty field when it is a tuple, the instance is not itself a supertag,
@@ -13,6 +14,8 @@ import { isSupertagAt, templateAt } from "./tag-reads.ts";
  * of this behind a flag; Lode has no formulas and keeps the flag on.
  */
 export function showsAsEmptyField(graph: Graph, instance: NodeAddress, tuple: NodeAddress): boolean {
+  instance = resolveAddress(graph, instance);
+  tuple = resolveAddress(graph, tuple);
   if (!isTupleAt(graph, tuple) || isSupertagAt(graph, instance)) {
     return false;
   }

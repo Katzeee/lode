@@ -5,13 +5,14 @@ import { test } from "node:test";
 import { writeMention } from "../store/text.ts";
 import { child, command, id, replicas } from "./graph.test-support.ts";
 import { inlineNodes, inlineOwnedNodes } from "./inline.ts";
+import { writableName } from "./content.ts";
 
 test("a target mentioned twice is read twice; a tuple's mentions are not inline nodes", () => {
   const [r] = replicas([{ name: "H" }, { name: "K", parent: "H", listed: false }, { name: "D" }]);
   command(r!, [child("T", "H", { kind: "tuple", tupleDefinitionId: id("D") })], () => {
-    writeMention(r!.store.name(id("H")), 0, id("K"));
-    writeMention(r!.store.name(id("H")), 1, id("K"));
-    writeMention(r!.store.name(id("T")), 0, id("K"));
+    writeMention(writableName(r!, id("H")), 0, id("K"));
+    writeMention(writableName(r!, id("H")), 1, id("K"));
+    writeMention(writableName(r!, id("T")), 0, id("K"));
   });
   deepStrictEqual(inlineNodes(r!, id("H")), [id("K"), id("K")]);
   deepStrictEqual(inlineOwnedNodes(r!, id("H")), [id("K"), id("K")]);

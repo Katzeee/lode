@@ -9,6 +9,7 @@ import { templateSources, type SourceOrder } from "../tags/sources.ts";
 import { template, templates } from "../tags/templates.ts";
 import { addressKey, isProjected, sameAddress, storedNode, type NodeAddress } from "./address.ts";
 import { childrenOf, definitionAt, isMetanodeAt, kindAt, metanodeCandidatesAt, type Line } from "./readers.ts";
+import { resolveAddress } from "./resolve.ts";
 
 /**
  * The address's templates. A real node reads its own fold. A projected node reads through its
@@ -17,6 +18,7 @@ import { childrenOf, definitionAt, isMetanodeAt, kindAt, metanodeCandidatesAt, t
  * boundary says.
  */
 export function templatesAt(graph: Graph, address: NodeAddress): NodeAddress[] | undefined {
+  address = resolveAddress(graph, address);
   if (!isProjected(address)) {
     return templates(graph, address);
   }
@@ -42,20 +44,24 @@ export function templatesAt(graph: Graph, address: NodeAddress): NodeAddress[] |
 
 /** The first template is read from the stored source unmapped, as the reference system reads it on a projection. */
 export function templateAt(graph: Graph, address: NodeAddress): NodeId | undefined {
+  address = resolveAddress(graph, address);
   return template(graph, storedNode(address));
 }
 
 export function isSupertagAt(graph: Graph, address: NodeAddress): boolean {
+  address = resolveAddress(graph, address);
   return templatesAt(graph, address)?.includes(graph.system.supertag) ?? false;
 }
 
 export function hasValidTemplateAt(graph: Graph, address: NodeAddress): boolean {
+  address = resolveAddress(graph, address);
   const first = templateAt(graph, address);
   return first !== undefined && isNamedSupertag(graph, first);
 }
 
 /** Template sources as addresses: a tag the projection shows as a projection is walked as one. */
 export function templateSourcesAt(graph: Graph, address: NodeAddress, order: SourceOrder): NodeAddress[] {
+  address = resolveAddress(graph, address);
   return templateSources(address, order, {
     templatesOf: (node) => templatesAt(graph, node),
     key: addressKey,

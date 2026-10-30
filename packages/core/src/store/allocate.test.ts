@@ -1,6 +1,6 @@
-// Purpose: Guards creation facts surviving a command's single-step undo and redo.
+// Purpose: Guards creation facts surviving a command's single-step undo and redo, and the refusal of an id already allocated before anything is written.
 
-import { deepStrictEqual, strictEqual } from "node:assert/strict";
+import { deepStrictEqual, strictEqual, throws } from "node:assert/strict";
 import { test } from "node:test";
 import { allocate } from "./allocate.ts";
 import { nextCommandId } from "./command-id.ts";
@@ -9,8 +9,8 @@ import type { NodeId } from "./node-id.ts";
 import { COMMAND } from "./origins.ts";
 import { kindOf, sourceOf, supportsOf, tupleDefinitionIdOf, writeSupport } from "./records.ts";
 import { relationRecords } from "./relations.ts";
-import { base, node, replica } from "./replicas.test-support.ts";
-import { parentIdOf } from "./store.ts";
+import { base, replica } from "./replicas.test-support.ts";
+import { nameText } from "./text.ts";
 
 test("undo of a command keeps its allocation and takes one step", () => {
   const a = replica(1n, base([{ id: "H" }]));
@@ -32,28 +32,38 @@ test("undo of a command keeps its allocation and takes one step", () => {
     [{ host: "H" as NodeId, relation: { type: "meta", target: "M" as NodeId } }],
   );
   for (const id of ["M", "A"]) {
-    writeSupport(node(a, id), command);
+    writeSupport(a.store, id as NodeId, command);
   }
-  a.store.name("A" as NodeId).insert(0, "typed");
+  nameText(a.store, "A" as NodeId).insert(0, "typed");
   a.store.doc.commit({ origin: COMMAND });
 
   strictEqual(a.undo.undo(), true);
   strictEqual(a.undo.canUndo(), false, "allocation adds no undo step");
 
-  const app = node(a, "A");
+  const app = "A" as NodeId;
   deepStrictEqual(
     [
-      parentIdOf(app),
-      kindOf(app),
+      a.store.ownership.physicalOwner(app),
+      kindOf(a.store, app),
       listingEntries(a.store, "M" as NodeId).includes("A" as NodeId),
-      relationRecords(node(a, "H")).length,
+      relationRecords(a.store, "H" as NodeId).length,
     ],
     ["M", "tuple", true, 1],
   );
-  deepStrictEqual([tupleDefinitionIdOf(app), sourceOf(app)], ["SYS_A13", "template-application"]);
-  deepStrictEqual([supportsOf(app).size, a.store.name("A" as NodeId).toString()], [0, ""]);
+  deepStrictEqual([tupleDefinitionIdOf(a.store, app), sourceOf(a.store, app)], ["SYS_A13", "template-application"]);
+  deepStrictEqual([supportsOf(a.store, app).size, nameText(a.store, "A" as NodeId).toString()], [0, ""]);
 
   a.undo.redo();
-  deepStrictEqual([tupleDefinitionIdOf(app), sourceOf(app)], ["SYS_A13", "template-application"]);
-  deepStrictEqual([supportsOf(app).size, a.store.name("A" as NodeId).toString()], [1, "typed"]);
+  deepStrictEqual([tupleDefinitionIdOf(a.store, app), sourceOf(a.store, app)], ["SYS_A13", "template-application"]);
+  deepStrictEqual([supportsOf(a.store, app).size, nameText(a.store, "A" as NodeId).toString()], [1, "typed"]);
+});
+
+test("an id already allocated, or repeated in one call, is refused before anything is written", () => {
+  const a = replica(1n, base([{ id: "H" }, { id: "N", parent: "H" }]));
+  const version = a.store.doc.oplogVersion().toJSON();
+  const allocation = (id: string) => ({ id: id as NodeId, parent: "H" as NodeId, listed: true });
+  throws(() => allocate(a.store, nextCommandId(a.store.doc), [allocation("X"), allocation("N")]), /already allocated/);
+  throws(() => allocate(a.store, nextCommandId(a.store.doc), [allocation("X"), allocation("X")]), /already allocated/);
+  deepStrictEqual([a.store.doc.oplogVersion().toJSON(), a.store.has("X" as NodeId)], [version, false]);
+  strictEqual(a.store.ownership.incarnationParents("N" as NodeId).length, 1);
 });

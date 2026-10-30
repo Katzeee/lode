@@ -2,14 +2,15 @@
 
 import { insertListing } from "../store/listings.ts";
 import { writeSupport } from "../store/records.ts";
-import { child, command, id, node, type Replica } from "../graph/graph.test-support.ts";
+import { child, command, id, type Replica } from "../graph/graph.test-support.ts";
+import { writableName } from "../graph/content.ts";
 
 /** Names `names` in one command. */
 export function name(r: Replica, ...names: string[]): void {
   command(r, [], (cmd) => {
     for (const each of names) {
-      r.store.name(id(each)).insert(0, each);
-      writeSupport(node(r, each), cmd);
+      writableName(r, id(each)).insert(0, each);
+      writeSupport(r.store, id(each), cmd);
     }
   });
 }

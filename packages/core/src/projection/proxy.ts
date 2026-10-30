@@ -2,6 +2,7 @@
 
 import type { Graph } from "../graph/graph.ts";
 import { isProjected, type NodeAddress, type Projected, type ProjectionMode } from "./address.ts";
+import { resolveAddress } from "./resolve.ts";
 import { materializeAsSelf } from "./sharing.ts";
 
 export type ProjectionContext = {
@@ -15,12 +16,11 @@ export function contextOf(projected: Projected): ProjectionContext {
 }
 
 /**
- * The proxy factory: a shared node is returned as itself, anything else as its projection in the
- * context. Returning the copy already materialized for a projection is also the factory's contract;
- * it is resolved where copies exist, with materialization.
+ * The proxy factory: a shared node is returned as itself, before any resolution; anything else as its
+ * projection in the context, resolved to the copy currently materialized for it, if any.
  */
 export function project(graph: Graph, context: ProjectionContext, source: NodeAddress): NodeAddress {
   return !isProjected(source) && materializeAsSelf(graph, source)
     ? source
-    : { instance: context.instance, root: context.root, source, mode: context.mode };
+    : resolveAddress(graph, { instance: context.instance, root: context.root, source, mode: context.mode });
 }

@@ -5,7 +5,8 @@ import { test } from "node:test";
 import { writeSupport } from "../store/records.ts";
 import { writeRelation } from "../store/relations.ts";
 import { insertListing } from "../store/listings.ts";
-import { child, command, id, node, replicas, sync, type Replica } from "../graph/graph.test-support.ts";
+import { child, command, id, replicas, type Replica } from "../graph/graph.test-support.ts";
+import { sync } from "../store/replicas.test-support.ts";
 import { supertags, tag } from "../tags/tags.test-support.ts";
 import { addressKey, sameAddress, type NodeAddress, type Projected } from "./address.ts";
 import { associatedSubjectAt, holderAt, holdersAt } from "./holders.ts";
@@ -35,7 +36,7 @@ function fixture(): Replica {
   command(r!, [], (cmd) => {
     insertListing(r!.store, id("R"), id("d"), 1);
     insertListing(r!.store, id("R"), id("X"), 2);
-    writeSupport(node(r!, "R"), cmd);
+    writeSupport(r!.store, id("R"), cmd);
   });
   tag(r!, "I", ["A"]);
   tag(r!, "J", ["A"]);
@@ -90,9 +91,9 @@ test("a template field shows one projected empty value; initialization and super
 test("holder enumeration bounds holders, direct lookup always projects, and a real holder keeps its subject", () => {
   const r = fixture();
   command(r, [child("inner", "R", { listed: false }), child("outer", "X", { listed: false })], (cmd) => {
-    writeRelation(r.store, node(r, "R"), { type: "assoc", subject: id("c"), holder: id("inner") }, cmd);
-    writeRelation(r.store, node(r, "R"), { type: "assoc", subject: id("X"), holder: id("outer") }, cmd);
-    writeSupport(node(r, "R"), cmd);
+    writeRelation(r.store, id("R"), { type: "assoc", subject: id("c"), holder: id("inner") }, cmd);
+    writeRelation(r.store, id("R"), { type: "assoc", subject: id("X"), holder: id("outer") }, cmd);
+    writeSupport(r.store, id("R"), cmd);
   });
   const projectedR = at(id("I"), "R");
 
@@ -131,8 +132,8 @@ test("a metanode another node owns is no metanode for the real node or its proje
   template(r!, "B");
   tag(r!, "X", ["B"], "M");
   command(r!, [], (cmd) => {
-    writeRelation(r!.store, node(r!, "R"), { type: "meta", target: id("M") }, cmd);
-    writeSupport(node(r!, "R"), cmd);
+    writeRelation(r!.store, id("R"), { type: "meta", target: id("M") }, cmd);
+    writeSupport(r!.store, id("R"), cmd);
   });
   tag(r!, "I", ["A"]);
 

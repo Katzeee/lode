@@ -5,7 +5,8 @@ import { test } from "node:test";
 import { deleteListings } from "../store/listings.ts";
 import { writeSupport } from "../store/records.ts";
 import { isStrictlyEmpty } from "./emptiness.ts";
-import { child, command, id, node, replicas, sync, type Replica } from "./graph.test-support.ts";
+import { child, command, id, replicas, type Replica } from "./graph.test-support.ts";
+import { sync } from "../store/replicas.test-support.ts";
 import { isTuple, valueSlots } from "./tuples.ts";
 
 /** A field use T with definition D and two values; unlisting stands in for deletion here. */
@@ -20,7 +21,7 @@ function fixture() {
 function unlist(r: Replica, value: string): void {
   command(r, [], (cmd) => {
     deleteListings(r.store, id("T"), id(value));
-    writeSupport(node(r, "T"), cmd);
+    writeSupport(r.store, id("T"), cmd);
   });
 }
 
@@ -48,7 +49,7 @@ test("two replicas deleting the same last value keep both replacement values", (
   ] as const) {
     command(r, [child(name, "T")], (cmd) => {
       deleteListings(r.store, id("T"), id("V1"));
-      writeSupport(node(r, "T"), cmd);
+      writeSupport(r.store, id("T"), cmd);
     });
   }
   sync(a, b);

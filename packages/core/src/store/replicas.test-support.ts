@@ -4,8 +4,9 @@ import { UndoManager } from "loro-crdt";
 import { nextCommandId, type CommandId } from "./command-id.ts";
 import type { NodeId } from "./node-id.ts";
 import { COMMAND, EXCLUDED, GENESIS } from "./origins.ts";
-import { insertListing } from "./listings.ts";
-import { writeCreationFacts } from "./records.ts";
+import { writeAllocation } from "./allocate.ts";
+import { writeDocId, type DocId } from "./doc-id.ts";
+import { writeSupport } from "./records.ts";
 import { Store } from "./store.ts";
 
 /** One replica of a test document with its own undo manager, configured as a workspace's is. */
@@ -15,22 +16,27 @@ const BASE_PEER = 90n;
 
 /**
  * A document holding `nodes` (each listed by its parent unless `listed` is false), written by a peer
- * no replica uses, so every replica forks from identical history.
+ * no replica uses, so every replica forks from identical history. With `supported`, each node carries
+ * that peer's support, so every base node is present; `docId` names the workspace.
  */
-export function base(nodes: { id: string; parent?: string; listed?: boolean }[]): Uint8Array {
+export function base(
+  nodes: { id: string; parent?: string; listed?: boolean }[],
+  { supported = false, docId }: { supported?: boolean; docId?: DocId } = {},
+): Uint8Array {
   const store = new Store(Store.newDoc());
   store.doc.setPeerId(BASE_PEER);
-  for (const spec of nodes) {
-    const parent = spec.parent === undefined ? undefined : store.node(spec.parent as NodeId);
-    const node = parent ? parent.createNode() : store.tree.createNode();
-    writeCreationFacts(node, { id: spec.id as NodeId });
-    if (spec.parent !== undefined) {
-      if (spec.listed ?? true) {
-        insertListing(store, spec.parent as NodeId, spec.id as NodeId);
-      }
-    }
-    store.doc.commit({ origin: GENESIS });
+  if (docId) {
+    writeDocId(store.doc, docId);
   }
+  const id = nextCommandId(store.doc);
+  for (const spec of nodes) {
+    const node = spec.id as NodeId;
+    writeAllocation(store, id, [{ id: node, parent: spec.parent as NodeId | undefined, listed: spec.listed ?? true }]);
+    if (supported) {
+      writeSupport(store, node, id);
+    }
+  }
+  store.doc.commit({ origin: GENESIS });
   return store.doc.export({ mode: "snapshot" });
 }
 
@@ -56,8 +62,4 @@ export function send(from: Replica, to: Replica): void {
 export function sync(a: Replica, b: Replica): void {
   send(a, b);
   send(b, a);
-}
-
-export function node(replica: Replica, id: string) {
-  return replica.store.node(id as NodeId);
 }

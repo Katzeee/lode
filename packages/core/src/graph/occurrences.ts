@@ -2,7 +2,6 @@
 
 import type { NodeId } from "../store/node-id.ts";
 import { listingEntries } from "../store/listings.ts";
-import { parentIdOf } from "../store/store.ts";
 import type { Graph } from "./graph.ts";
 import { isPresent, ownerOf } from "./presence.ts";
 
@@ -19,7 +18,7 @@ export type Occurrence = { parent: NodeId; node: NodeId; link: "original" | "ref
  * node is present, so the creation parent of an undone creation does not list it.
  */
 export function occurrences(graph: Graph, parent: NodeId): Occurrence[] {
-  if (graph.store.find(parent) === undefined || !isPresent(graph, parent)) {
+  if (!isPresent(graph, parent)) {
     return [];
   }
   const seen = new Set<NodeId>();
@@ -43,6 +42,5 @@ export function lists(graph: Graph, parent: NodeId, node: NodeId): boolean {
 }
 
 function shown(graph: Graph, parent: NodeId, target: NodeId): boolean {
-  const node = graph.store.find(target);
-  return node === undefined || parentIdOf(node) !== parent || isPresent(graph, target);
+  return graph.store.ownership.physicalOwner(target) !== parent || isPresent(graph, target);
 }

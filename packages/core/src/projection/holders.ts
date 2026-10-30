@@ -5,12 +5,15 @@ import type { Graph } from "../graph/graph.ts";
 import { isProjected, type NodeAddress } from "./address.ts";
 import { contextOf, project } from "./proxy.ts";
 import { throughBoundary } from "./readers.ts";
+import { resolveAddress } from "./resolve.ts";
 
 /**
  * Direct lookup of the holder for one subject. On a projected host a projected subject is read as its
  * source, and the source's holder is projected with no boundary test.
  */
 export function holderAt(graph: Graph, host: NodeAddress, subject: NodeAddress): NodeAddress | undefined {
+  host = resolveAddress(graph, host);
+  subject = resolveAddress(graph, subject);
   if (!isProjected(host)) {
     return isProjected(subject) ? undefined : effectiveHolder(graph, host, subject);
   }
@@ -23,6 +26,7 @@ export function holderAt(graph: Graph, host: NodeAddress, subject: NodeAddress):
  * the boundary is projected and any other is the source's holder as it is.
  */
 export function holdersAt(graph: Graph, host: NodeAddress): NodeAddress[] {
+  host = resolveAddress(graph, host);
   if (!isProjected(host)) {
     return associatedSubjects(graph, host).flatMap((subject) => effectiveHolder(graph, host, subject) ?? []);
   }
@@ -35,6 +39,7 @@ export function holdersAt(graph: Graph, host: NodeAddress): NodeAddress[] {
  * keeps its real subject, even when that subject has a copy elsewhere.
  */
 export function associatedSubjectAt(graph: Graph, holder: NodeAddress): NodeAddress | undefined {
+  holder = resolveAddress(graph, holder);
   if (!isProjected(holder)) {
     return effectivePair(graph, holder)?.subject;
   }

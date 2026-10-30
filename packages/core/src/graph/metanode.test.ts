@@ -7,7 +7,8 @@ import { nextCommandId } from "../store/command-id.ts";
 import { COMMAND } from "../store/origins.ts";
 import { relationRecords, writeRelation } from "../store/relations.ts";
 import { writeSupport } from "../store/records.ts";
-import { child, command, id, node, replicas, sync } from "./graph.test-support.ts";
+import { child, command, id, replicas } from "./graph.test-support.ts";
+import { sync } from "../store/replicas.test-support.ts";
 import { effectiveMetanode, isMetanode, metanodeTargets } from "./metanode.ts";
 import { liveMetaRecords } from "./relations.ts";
 
@@ -23,22 +24,22 @@ test("a relation is not live once either endpoint loses presence", () => {
     [child("H2", "H"), child("M2", "H2", { listed: false })],
     [{ host: id("H2"), relation: meta("M2") }],
   );
-  writeSupport(node(a!, "H2"), cmd);
-  writeSupport(node(a!, "M2"), cmd);
+  writeSupport(a!.store, id("H2"), cmd);
+  writeSupport(a!.store, id("M2"), cmd);
   a!.store.doc.commit({ origin: COMMAND });
   strictEqual(liveMetaRecords(a!, id("H2")).length, 1);
   a!.undo.undo();
-  strictEqual(relationRecords(node(a!, "H2")).length, 1);
+  strictEqual(relationRecords(a!.store, id("H2")).length, 1);
   strictEqual(liveMetaRecords(a!, id("H2")).length, 0, "host not present");
 
   const [b] = replicas([{ name: "H" }]);
   const created = nextCommandId(b!.store.doc);
   allocate(b!.store, created, [child("M", "H", { listed: false })], [{ host: id("H"), relation: meta("M") }]);
-  writeSupport(node(b!, "M"), created);
+  writeSupport(b!.store, id("M"), created);
   b!.store.doc.commit({ origin: COMMAND });
   strictEqual(liveMetaRecords(b!, id("H")).length, 1);
   b!.undo.undo();
-  strictEqual(relationRecords(node(b!, "H")).length, 1, "the record is a creation fact and stays");
+  strictEqual(relationRecords(b!.store, id("H")).length, 1, "the record is a creation fact and stays");
   strictEqual(liveMetaRecords(b!, id("H")).length, 0, "target not present");
   b!.undo.redo();
   strictEqual(liveMetaRecords(b!, id("H")).length, 1);
@@ -46,12 +47,12 @@ test("a relation is not live once either endpoint loses presence", () => {
 
 test("a pointer to a metanode its host does not own is not live; owned candidates stay, smallest first", () => {
   const [a, b] = replicas([{ name: "H" }, { name: "Elsewhere" }]);
-  command(a!, [child("M2", "H", { listed: false })], (cmd) => writeRelation(a!.store, node(a!, "H"), meta("M2"), cmd));
+  command(a!, [child("M2", "H", { listed: false })], (cmd) => writeRelation(a!.store, id("H"), meta("M2"), cmd));
   command(b!, [child("M1", "Elsewhere", { listed: false })], (cmd) => {
-    writeRelation(b!.store, node(b!, "H"), meta("M1"), cmd);
-    writeSupport(node(b!, "H"), cmd);
+    writeRelation(b!.store, id("H"), meta("M1"), cmd);
+    writeSupport(b!.store, id("H"), cmd);
   });
-  command(b!, [child("M3", "H", { listed: false })], (cmd) => writeRelation(b!.store, node(b!, "H"), meta("M3"), cmd));
+  command(b!, [child("M3", "H", { listed: false })], (cmd) => writeRelation(b!.store, id("H"), meta("M3"), cmd));
   sync(a!, b!);
 
   for (const r of [a!, b!]) {

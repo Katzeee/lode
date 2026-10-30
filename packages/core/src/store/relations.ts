@@ -1,8 +1,8 @@
 // Purpose: Stores metanode and association relations under command-specific keys for concurrent edits.
 
-import type { LoroTreeNode } from "loro-crdt";
 import { peerOf, type CommandId } from "./command-id.ts";
 import type { NodeId } from "./node-id.ts";
+import { factsOf, writableFacts } from "./records.ts";
 import type { Store } from "./store.ts";
 
 /**
@@ -20,8 +20,8 @@ const SEPARATOR = "|";
  * Every relation record on `host`. Each is its own key, `meta|M|cmd` or `assoc|S|H|cmd`: a fresh key
  * per command means a concurrent removal, which deletes only the keys it saw, cannot delete it.
  */
-export function relationRecords(host: LoroTreeNode): RelationRecord[] {
-  return (host.data.keys() as string[]).flatMap((key) => parseRelationKey(key) ?? []);
+export function relationRecords(store: Store, host: NodeId): RelationRecord[] {
+  return ((factsOf(store, host)?.keys() ?? []) as string[]).flatMap((key) => parseRelationKey(key) ?? []);
 }
 
 /** The record a map key encodes, or undefined for a key that is not a relation record. */
@@ -48,21 +48,23 @@ export function sameRelation(a: Relation, b: Relation): boolean {
  * earlier, so sequential commands leave one key per peer, then writes the command's own key. The
  * store's derived indexes are updated at once, so reads before the commit already see the write.
  */
-export function writeRelation(store: Store, host: LoroTreeNode, relation: Relation, command: CommandId): void {
+export function writeRelation(store: Store, host: NodeId, relation: Relation, command: CommandId): void {
   const peer = peerOf(command);
-  for (const record of relationRecords(host)) {
+  const facts = writableFacts(store, host);
+  for (const record of relationRecords(store, host)) {
     if (sameRelation(record, relation) && peerOf(record.command) === peer) {
-      host.data.delete(record.key);
+      facts.delete(record.key);
     }
   }
-  host.data.set(keyOf(relation, command), true);
+  facts.set(keyOf(relation, command), true);
   store.holders.reindex(host);
 }
 
 /** Removes the records the caller observed; a record written concurrently elsewhere survives. */
-export function deleteRelationRecords(store: Store, host: LoroTreeNode, observed: readonly RelationRecord[]): void {
+export function deleteRelationRecords(store: Store, host: NodeId, observed: readonly RelationRecord[]): void {
+  const facts = writableFacts(store, host);
   for (const record of observed) {
-    host.data.delete(record.key);
+    facts.delete(record.key);
   }
   store.holders.reindex(host);
 }

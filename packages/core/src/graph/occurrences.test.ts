@@ -4,7 +4,8 @@ import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
 import { deleteListings, insertListing } from "../store/listings.ts";
 import { writeSupport } from "../store/records.ts";
-import { child, command, id, node, replicas, sync } from "./graph.test-support.ts";
+import { child, command, id, replicas } from "./graph.test-support.ts";
+import { sync } from "../store/replicas.test-support.ts";
 import { occurrences } from "./occurrences.ts";
 
 test("concurrent references to one target under one parent read once, at the first position", () => {
@@ -12,7 +13,7 @@ test("concurrent references to one target under one parent read once, at the fir
   for (const r of [a!, b!]) {
     command(r, [], (cmd) => {
       insertListing(r.store, id("P"), id("T"), 1);
-      writeSupport(node(r, "P"), cmd);
+      writeSupport(r.store, id("P"), cmd);
     });
   }
   sync(a!, b!);
@@ -50,13 +51,13 @@ test("an undone creation is hidden from its creation parent only, and an owner c
   const [a] = replicas([{ name: "H" }, { name: "P" }]);
   command(a!, [child("N", "H")], (cmd) => {
     insertListing(a!.store, id("P"), id("N"));
-    writeSupport(node(a!, "P"), cmd);
+    writeSupport(a!.store, id("P"), cmd);
   });
   a!.undo.undo();
   // P's entry was the command's own write and is gone; re-add one as another command's reference.
   command(a!, [], (cmd) => {
     insertListing(a!.store, id("P"), id("N"));
-    writeSupport(node(a!, "P"), cmd);
+    writeSupport(a!.store, id("P"), cmd);
   });
   deepStrictEqual(
     [occurrences(a!, id("H")), occurrences(a!, id("P"))],
@@ -65,8 +66,8 @@ test("an undone creation is hidden from its creation parent only, and an owner c
 
   const [b] = replicas([{ name: "H" }, { name: "P" }, { name: "N", parent: "H" }]);
   command(b!, [], (cmd) => {
-    node(b!, "N").move(node(b!, "P"));
-    writeSupport(node(b!, "N"), cmd);
+    b!.store.ownership.moveOwner(id("N"), id("P"));
+    writeSupport(b!.store, id("N"), cmd);
   });
   deepStrictEqual(
     [occurrences(b!, id("H")), occurrences(b!, id("P"))],
@@ -83,11 +84,11 @@ for (const peers of [
     const [a, b] = replicas([{ name: "H" }, { name: "X", parent: "H" }, { name: "Y", parent: "H" }], peers);
     const moveInto = (r: NonNullable<typeof a>, moved: string, into: string) =>
       command(r, [], (cmd) => {
-        node(r, moved).move(node(r, into));
+        r.store.ownership.moveOwner(id(moved), id(into));
         deleteListings(r.store, id("H"), id(moved));
         insertListing(r.store, id(into), id(moved));
         for (const each of ["H", moved, into]) {
-          writeSupport(node(r, each), cmd);
+          writeSupport(r.store, id(each), cmd);
         }
       });
     moveInto(a!, "X", "Y");

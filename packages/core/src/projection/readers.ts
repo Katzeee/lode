@@ -3,14 +3,16 @@
 import type { NodeId } from "../store/node-id.ts";
 import type { Kind } from "../store/records.ts";
 import { runs, type Run } from "../store/text.ts";
+import { nameOf } from "../graph/content.ts";
 import type { Graph } from "../graph/graph.ts";
 import { inlineNodes } from "../graph/inline.ts";
-import { metanodeTargets } from "../graph/metanode.ts";
+import { isMetanode, metanodeTargets } from "../graph/metanode.ts";
 import { occurrences } from "../graph/occurrences.ts";
 import { kindRead, ownerOf, sourceRead, tupleDefinitionRead } from "../graph/presence.ts";
 import { isTuple } from "../graph/tuples.ts";
-import { addressKey, isProjected, sameAddress, storedNode, type NodeAddress, type Projected } from "./address.ts";
+import { addressKey, isProjected, sameAddress, storedNode, type NodeAddress } from "./address.ts";
 import { contextOf, project, type ProjectionContext } from "./proxy.ts";
+import { resolveAddress } from "./resolve.ts";
 
 /** One child shown under a parent; its link comes from ownership, as for stored occurrences. */
 export type Line = { parent: NodeAddress; node: NodeAddress; link: "original" | "reference" };
@@ -27,11 +29,13 @@ export type Line = { parent: NodeAddress; node: NodeAddress; link: "original" | 
  * lists exactly the projected empty value.
  */
 export function childrenOf(graph: Graph, address: NodeAddress): Line[] {
+  address = resolveAddress(graph, address);
   if (!isProjected(address)) {
     return occurrences(graph, address).map(({ node, link }) => ({ parent: address, node, link }));
   }
   if (address.mode === "emptyField" && sameAddress(address.source, address.root)) {
-    return [{ parent: address, node: { ...address, source: graph.system.emptyValue }, link: "original" }];
+    const empty = resolveAddress(graph, { ...address, source: graph.system.emptyValue });
+    return [{ parent: address, node: empty, link: "original" }];
   }
   const context = contextOf(address);
   return childrenOf(graph, address.source).map(({ node: child }) => {
@@ -48,6 +52,7 @@ export function childrenOf(graph: Graph, address: NodeAddress): Line[] {
  * the empty value of an empty-field tuple is owned by that tuple.
  */
 export function ownerAt(graph: Graph, address: NodeAddress): NodeAddress | undefined {
+  address = resolveAddress(graph, address);
   if (!isProjected(address)) {
     return ownerOf(graph, address);
   }
@@ -55,7 +60,7 @@ export function ownerAt(graph: Graph, address: NodeAddress): NodeAddress | undef
     return address.instance;
   }
   if (address.mode === "emptyField" && address.source === graph.system.emptyValue) {
-    return { ...address, source: address.root };
+    return resolveAddress(graph, { ...address, source: address.root });
   }
   const owner = ownerAt(graph, address.source);
   return owner === undefined ? undefined : project(graph, contextOf(address), owner);
@@ -63,6 +68,8 @@ export function ownerAt(graph: Graph, address: NodeAddress): NodeAddress | undef
 
 /** The root itself, or a node the root owns, directly or through its owned descendants. */
 export function inBoundary(graph: Graph, root: NodeAddress, node: NodeAddress): boolean {
+  root = resolveAddress(graph, root);
+  node = resolveAddress(graph, node);
   const seen = new Set<string>();
   for (let current: NodeAddress | undefined = node; current !== undefined; current = ownerAt(graph, current)) {
     const key = addressKey(current);
@@ -79,15 +86,18 @@ export function inBoundary(graph: Graph, root: NodeAddress, node: NodeAddress): 
 
 /** Inside the boundary a related node is projected in the same context; outside it is the real node. */
 export function throughBoundary(graph: Graph, context: ProjectionContext, node: NodeAddress): NodeAddress {
+  node = resolveAddress(graph, node);
   return inBoundary(graph, context.root, node) ? project(graph, context, node) : node;
 }
 
 /** A projected node's source is the node it shows, itself possibly projected. */
 export function sourceAt(graph: Graph, address: NodeAddress): NodeAddress | undefined {
+  address = resolveAddress(graph, address);
   return isProjected(address) ? address.source : sourceRead(graph, address);
 }
 
 export function kindAt(graph: Graph, address: NodeAddress): Kind | undefined {
+  address = resolveAddress(graph, address);
   return kindRead(graph, storedNode(address));
 }
 
@@ -96,6 +106,7 @@ export function kindAt(graph: Graph, address: NodeAddress): Kind | undefined {
  * field definition is shared, any other endpoint inside the boundary is projected.
  */
 export function definitionAt(graph: Graph, address: NodeAddress): NodeAddress | undefined {
+  address = resolveAddress(graph, address);
   if (!isProjected(address)) {
     return tupleDefinitionRead(graph, address);
   }
@@ -105,6 +116,7 @@ export function definitionAt(graph: Graph, address: NodeAddress): NodeAddress | 
 
 /** The structural tuple test, over the values the address lists. */
 export function isTupleAt(graph: Graph, address: NodeAddress): boolean {
+  address = resolveAddress(graph, address);
   return !isProjected(address)
     ? isTuple(graph, address)
     : kindAt(graph, address) === "tuple" &&
@@ -114,6 +126,7 @@ export function isTupleAt(graph: Graph, address: NodeAddress): boolean {
 
 /** Inline targets, one per mention; a projected name's targets inside the boundary are projected. */
 export function inlineAt(graph: Graph, address: NodeAddress): NodeAddress[] {
+  address = resolveAddress(graph, address);
   if (!isProjected(address)) {
     return inlineNodes(graph, address);
   }
@@ -128,9 +141,10 @@ export function inlineAt(graph: Graph, address: NodeAddress): NodeAddress[] {
  * projected name's inline targets read as their projections. Empty for a node with no name.
  */
 export function nameKey(graph: Graph, address: NodeAddress): string {
-  const node = graph.store.find(storedNode(address));
-  const named = node === undefined ? [] : runs(graph.store.name(storedNode(address)));
-  return named.map((run) => markup(run, (target) => addressKey(mapTarget(graph, address, target)))).join("");
+  address = resolveAddress(graph, address);
+  return runs(nameOf(graph, storedNode(address)))
+    .map((run) => markup(run, (target) => addressKey(mapTarget(graph, address, target))))
+    .join("");
 }
 
 function markup(run: Run, target: (id: NodeId) => string): string {
@@ -162,6 +176,7 @@ function mapTarget(graph: Graph, address: NodeAddress, target: NodeId): NodeAddr
 
 /** The metanode the address reads: the first candidate, projected with no boundary test. */
 export function metanodeAt(graph: Graph, address: NodeAddress): NodeAddress | undefined {
+  address = resolveAddress(graph, address);
   return metanodeCandidatesAt(graph, address)[0];
 }
 
@@ -170,6 +185,7 @@ export function metanodeAt(graph: Graph, address: NodeAddress): NodeAddress | un
  * source's, each projected. Plural tag reads fold all of them; a single-target read takes the first.
  */
 export function metanodeCandidatesAt(graph: Graph, address: NodeAddress): NodeAddress[] {
+  address = resolveAddress(graph, address);
   if (!isProjected(address)) {
     return metanodeTargets(graph, address);
   }
@@ -178,7 +194,11 @@ export function metanodeCandidatesAt(graph: Graph, address: NodeAddress): NodeAd
 }
 
 /** A projected node is a metanode when one of its owner's live pointers names it. */
-export function isMetanodeAt(graph: Graph, address: Projected): boolean {
+export function isMetanodeAt(graph: Graph, address: NodeAddress): boolean {
+  address = resolveAddress(graph, address);
+  if (!isProjected(address)) {
+    return isMetanode(graph, address);
+  }
   const owner = ownerAt(graph, address);
   return owner !== undefined && metanodeCandidatesAt(graph, owner).some((target) => sameAddress(target, address));
 }
