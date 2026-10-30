@@ -1,7 +1,6 @@
 // Purpose: Reads the nodes a host's name mentions inline, and those among them the host owns.
 
 import type { NodeId } from "../store/node-id.ts";
-import { nameOf } from "../store/records.ts";
 import { inlineMentions } from "../store/text.ts";
 import type { Graph } from "./graph.ts";
 import { kindRead, ownerOf } from "./presence.ts";
@@ -15,7 +14,7 @@ export function inlineNodes(graph: Graph, host: NodeId): NodeId[] {
   const kind = kindRead(graph, host);
   return !node || kind === "chat" || kind === "tuple"
     ? []
-    : inlineMentions(nameOf(node))
+    : inlineMentions(graph.store.name(host))
         .map((mention) => mention.target)
         .filter((target) => graph.store.find(target) !== undefined);
 }

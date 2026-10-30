@@ -1,10 +1,10 @@
 // Purpose: Implements the emptiness predicates, each named after the entry points that use it.
 
 import type { NodeId } from "../store/node-id.ts";
-import { descriptionOf, nameOf } from "../store/records.ts";
+import { descriptionOf } from "../store/records.ts";
 import { hasName } from "./content.ts";
 import type { Graph } from "./graph.ts";
-import { effectiveMetanode, metanodeTargets } from "./metanode.ts";
+import { effectiveMetanode } from "./metanode.ts";
 import { listedNodes } from "./occurrences.ts";
 import { tupleDefinitionRead } from "./presence.ts";
 import { liveAssocRecords } from "./relations.ts";
@@ -39,9 +39,7 @@ export function isStrictlyEmpty(graph: Graph, slot: NodeId | ValueSlot): boolean
 
 /**
  * A holder that may be dissociated: resolved, and no children, name or description, reference
- * fallback, nested associations, or other metadata. A live pointer whose target the holder does not
- * own leaves the holder unresolved, so it is kept; a missing pointer is resolved with no metadata.
- * Fallbacks are outside 0.1, so any listed child of the holder's metanode is other metadata.
+ * fallback, nested associations, or other metadata. Fallbacks are outside 0.1, so any listed child of the holder's metanode is other metadata.
  */
 export function holderIsEmpty(graph: Graph, holder: NodeId): boolean {
   if (!exists(graph, holder)) {
@@ -49,11 +47,9 @@ export function holderIsEmpty(graph: Graph, holder: NodeId): boolean {
   }
   const node = graph.store.node(holder);
   const metanode = effectiveMetanode(graph, holder);
-  const unresolved = metanode === undefined && metanodeTargets(graph, holder).length > 0;
   return (
-    !unresolved &&
     listedNodes(graph, holder).length === 0 &&
-    nameOf(node).toString().trim() === "" &&
+    graph.store.name(holder).toString().trim() === "" &&
     (descriptionOf(node)?.trim() ?? "") === "" &&
     liveAssocRecords(graph, holder).length === 0 &&
     (metanode === undefined || listedNodes(graph, metanode).length === 0)

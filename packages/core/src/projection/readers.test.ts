@@ -4,7 +4,7 @@ import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
 import { writeSupport } from "../store/records.ts";
 import { writeRelation } from "../store/relations.ts";
-import { createLeaf } from "../store/store.ts";
+import { insertListing } from "../store/listings.ts";
 import { child, command, id, node, replicas, sync, type Replica } from "../graph/graph.test-support.ts";
 import { supertags, tag } from "../tags/tags.test-support.ts";
 import { addressKey, sameAddress, type NodeAddress, type Projected } from "./address.ts";
@@ -14,7 +14,7 @@ import { outlineLines } from "./outline.ts";
 import { children, field, template } from "./projection.test-support.ts";
 import { showsAsEmptyField } from "./empty-field.ts";
 import { childrenOf, definitionAt, metanodeAt, ownerAt } from "./readers.ts";
-import { hasValidTemplateAt, templateAt, templatesAt, templateSourcesAt } from "./tag-reads.ts";
+import { hasValidTemplateAt, templatesAt, templateSourcesAt } from "./tag-reads.ts";
 import { templates } from "../tags/templates.ts";
 
 const at = (instance: NodeAddress, source: string, root = source, mode: Projected["mode"] = "template"): Projected => ({
@@ -33,8 +33,8 @@ function fixture(): Replica {
   children(r!, "R", "c");
   children(r!, "c", "d");
   command(r!, [], (cmd) => {
-    createLeaf(node(r!, "R"), 1, id("d"));
-    createLeaf(node(r!, "R"), 2, id("X"));
+    insertListing(r!.store, id("R"), id("d"), 1);
+    insertListing(r!.store, id("R"), id("X"), 2);
     writeSupport(node(r!, "R"), cmd);
   });
   tag(r!, "I", ["A"]);
@@ -125,7 +125,7 @@ test("a supertag inside the template is read through the projection: its sources
   );
 });
 
-test("a projected node reads a metanode another node owns through its pointer; the real node does not", () => {
+test("a metanode another node owns is no metanode for the real node or its projection", () => {
   const [r] = replicas([{ name: "I" }, { name: "X" }]);
   template(r!, "A", "R");
   template(r!, "B");
@@ -136,28 +136,11 @@ test("a projected node reads a metanode another node owns through its pointer; t
   });
   tag(r!, "I", ["A"]);
 
-  deepStrictEqual(metanodeAt(r!, at(id("I"), "R")), at(id("I"), "M", "R"));
-  deepStrictEqual(templatesAt(r!, at(id("I"), "R")), [id("B")]);
-  // The singular template is read from the stored source, whose metanode it does not own.
-  deepStrictEqual([templateAt(r!, at(id("I"), "R")), hasValidTemplateAt(r!, at(id("I"), "R"))], [undefined, false]);
   deepStrictEqual([metanodeAt(r!, id("R")), templates(r!, id("R"))], [undefined, undefined]);
-});
-
-test("a shared metanode target the projected node does not own contributes no tags", () => {
-  const [r] = replicas([{ name: "I" }]);
-  template(r!, "A", "R");
-  template(r!, "B");
-  command(r!, [{ id: id("M"), listed: false }]);
-  tag(r!, "M", ["fieldDefinition"]);
-  command(r!, [child("app", "M", { kind: "tuple", tupleDefinitionId: id("tags") })], (cmd) => {
-    createLeaf(node(r!, "app"), 0, id("B"));
-    writeRelation(r!.store, node(r!, "R"), { type: "meta", target: id("M") }, cmd);
-    writeSupport(node(r!, "R"), cmd);
-  });
-  tag(r!, "I", ["A"]);
-
-  strictEqual(metanodeAt(r!, at(id("I"), "R")), id("M"), "the factory shares the field definition");
-  strictEqual(templatesAt(r!, at(id("I"), "R")), undefined);
+  deepStrictEqual(
+    [metanodeAt(r!, at(id("I"), "R")), templatesAt(r!, at(id("I"), "R")), hasValidTemplateAt(r!, at(id("I"), "R"))],
+    [undefined, undefined, false],
+  );
 });
 
 test("a definition endpoint inside the template is projected unless it is a field definition", () => {
@@ -230,7 +213,7 @@ function application(r: Replica, meta: string, app: string, values: string[]): v
     () =>
       values.forEach((value, index) => {
         if (!value.startsWith("E")) {
-          createLeaf(node(r, app), index, id(value));
+          insertListing(r.store, id(app), id(value), index);
         }
       }),
     [{ host: id("R"), relation: { type: "meta", target: id(meta) } }],

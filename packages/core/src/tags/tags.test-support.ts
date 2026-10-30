@@ -1,14 +1,14 @@
 // Purpose: Builds tagged nodes for tag-read tests: named supertags and hosts with tag applications.
 
-import { createLeaf } from "../store/store.ts";
-import { nameOf, writeSupport } from "../store/records.ts";
+import { insertListing } from "../store/listings.ts";
+import { writeSupport } from "../store/records.ts";
 import { child, command, id, node, type Replica } from "../graph/graph.test-support.ts";
 
 /** Names `names` in one command. */
 export function name(r: Replica, ...names: string[]): void {
   command(r, [], (cmd) => {
     for (const each of names) {
-      nameOf(node(r, each)).insert(0, each);
+      r.store.name(id(each)).insert(0, each);
       writeSupport(node(r, each), cmd);
     }
   });
@@ -26,7 +26,7 @@ export function tag(r: Replica, host: string, values: string[], meta = `${host}:
       child(meta, host, { listed: false, kind: "metanode" }),
       child(application, meta, { kind: "tuple", tupleDefinitionId: id("tags") }),
     ],
-    () => values.forEach((value, index) => createLeaf(node(r, application), index, id(value))),
+    () => values.forEach((value, index) => insertListing(r.store, id(application), id(value), index)),
     [{ host: id(host), relation: { type: "meta", target: id(meta) } }],
   );
 }

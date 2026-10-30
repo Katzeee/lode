@@ -1,4 +1,4 @@
-// Purpose: Guards ownerless node identity through undo, redo and reopening, and NodeId lookup after remote import.
+// Purpose: Guards ownerless node identity through undo, redo and reopening, NodeId lookup after remote import, and name undo surviving remote tree changes.
 
 import { strictEqual } from "node:assert/strict";
 import { test } from "node:test";
@@ -29,4 +29,18 @@ test("a node allocated on one replica is found by NodeId on another", () => {
   allocate(a.store, nextCommandId(a.store.doc), [{ id: "N" as NodeId, parent: "H" as NodeId, listed: true }]);
   send(a, b);
   strictEqual(parentIdOf(node(b, "N")), "H");
+});
+
+test("a name edit in a node allocated here undoes after a remote tree change arrives", () => {
+  const snapshot = base([{ id: "H" }, { id: "P" }]);
+  const a = replica(1n, snapshot);
+  const b = replica(2n, snapshot);
+  allocate(a.store, nextCommandId(a.store.doc), [{ id: "N" as NodeId, parent: "H" as NodeId, listed: true }]);
+  command(a, () => a.store.name("N" as NodeId).insert(0, "typed"));
+  command(b, () => node(b, "P").move(node(b, "H")));
+  send(b, a);
+  a.undo.undo();
+  strictEqual(a.store.name("N" as NodeId).toString(), "");
+  a.undo.redo();
+  strictEqual(a.store.name("N" as NodeId).toString(), "typed");
 });

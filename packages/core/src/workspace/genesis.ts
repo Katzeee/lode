@@ -5,10 +5,11 @@ import { systemNodes, type SystemNodes, type SystemRole } from "../graph/system-
 import { nextCommandId, type CommandId } from "../store/command-id.ts";
 import { readDocId, writeDocId, type DocId } from "../store/doc-id.ts";
 import { GENESIS } from "../store/origins.ts";
-import { nameOf, writeCreationFacts, writeListed, writeSupport, type Kind } from "../store/records.ts";
+import { insertListing } from "../store/listings.ts";
+import { writeCreationFacts, writeSupport, type Kind } from "../store/records.ts";
 import type { NodeId } from "../store/node-id.ts";
 import { writeRelation } from "../store/relations.ts";
-import { createLeaf, Store } from "../store/store.ts";
+import { Store } from "../store/store.ts";
 
 /** Reserved for genesis; no replica is ever leased this peer id. */
 const GENESIS_PEER = 0n;
@@ -62,10 +63,12 @@ export function genesis(docId: DocId): LoroDoc {
     const node = parent ? parent.createNode() : store.tree.createNode();
     writeCreationFacts(node, { id: ids[spec.role], kind: spec.kind });
     if (spec.parent) {
-      writeListed(node, ids[spec.parent], spec.listed ?? false);
+      if (spec.listed) {
+        insertListing(store, ids[spec.parent], ids[spec.role]);
+      }
     }
     if (spec.name) {
-      nameOf(node).insert(0, spec.name);
+      store.name(ids[spec.role]).insert(0, spec.name);
     }
     writeSupport(node, command);
     written.set(spec.role, node);
@@ -89,14 +92,14 @@ function writeTag(
   const metanodeId = `${hostId}:meta` as NodeId;
   const metanode = host.createNode();
   writeCreationFacts(metanode, { id: metanodeId, kind: "metanode" });
-  writeListed(metanode, hostId, false);
   writeSupport(metanode, command);
   writeRelation(store, host, { type: "meta", target: metanodeId }, command);
+  const applicationId = `${metanodeId}:tags` as NodeId;
   const application = metanode.createNode();
-  writeCreationFacts(application, { id: `${metanodeId}:tags` as NodeId, kind: "tuple", tupleDefinitionId: ids.tags });
-  writeListed(application, metanodeId, true);
+  writeCreationFacts(application, { id: applicationId, kind: "tuple", tupleDefinitionId: ids.tags });
+  insertListing(store, metanodeId, applicationId);
   writeSupport(application, command);
-  createLeaf(application, 0, tag);
+  insertListing(store, applicationId, tag);
 }
 
 /** The system nodes of a document genesis wrote. */

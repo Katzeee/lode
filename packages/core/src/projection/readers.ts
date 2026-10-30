@@ -1,11 +1,11 @@
 // Purpose: Reads structure, content and relations at any address, projected or real, as a projection shows them.
 
 import type { NodeId } from "../store/node-id.ts";
-import { nameOf, type Kind } from "../store/records.ts";
+import type { Kind } from "../store/records.ts";
 import { runs, type Run } from "../store/text.ts";
 import type { Graph } from "../graph/graph.ts";
 import { inlineNodes } from "../graph/inline.ts";
-import { effectiveMetanode, metanodeTargets } from "../graph/metanode.ts";
+import { metanodeTargets } from "../graph/metanode.ts";
 import { occurrences } from "../graph/occurrences.ts";
 import { kindRead, ownerOf, sourceRead, tupleDefinitionRead } from "../graph/presence.ts";
 import { isTuple } from "../graph/tuples.ts";
@@ -129,7 +129,7 @@ export function inlineAt(graph: Graph, address: NodeAddress): NodeAddress[] {
  */
 export function nameKey(graph: Graph, address: NodeAddress): string {
   const node = graph.store.find(storedNode(address));
-  const named = node === undefined ? [] : runs(nameOf(node));
+  const named = node === undefined ? [] : runs(graph.store.name(storedNode(address)));
   return named.map((run) => markup(run, (target) => addressKey(mapTarget(graph, address, target)))).join("");
 }
 
@@ -160,16 +160,8 @@ function mapTarget(graph: Graph, address: NodeAddress, target: NodeId): NodeAddr
     : target;
 }
 
-/**
- * The metanode the address points at. A real node's is its effective metanode, which it owns. A
- * projected node's metanode is its source's pointer target, projected with no boundary or ownership
- * test, so a pointer to a metanode another node owns still reads.
- */
+/** The metanode the address reads: the first candidate, projected with no boundary test. */
 export function metanodeAt(graph: Graph, address: NodeAddress): NodeAddress | undefined {
-  return isProjected(address) ? metanodePointerAt(graph, address) : effectiveMetanode(graph, address);
-}
-
-function metanodePointerAt(graph: Graph, address: NodeAddress): NodeAddress | undefined {
   return metanodeCandidatesAt(graph, address)[0];
 }
 

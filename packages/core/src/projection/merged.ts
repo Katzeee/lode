@@ -1,8 +1,8 @@
 // Purpose: Merges an instance's template children with its own children into the list an outline and initialization read.
 
-import type { NodeId } from "../store/node-id.ts";
 import { isEmpty } from "../graph/emptiness.ts";
 import type { Graph } from "../graph/graph.ts";
+import { isSystemNode } from "../graph/system-nodes.ts";
 import { addressKey, sameAddress, storedNode, type NodeAddress } from "./address.ts";
 import { showsAsEmptyField } from "./empty-field.ts";
 import { project } from "./proxy.ts";
@@ -122,7 +122,6 @@ export function mergedList(graph: Graph, instance: NodeAddress, reader: MergeRea
   const order = reader.kind === "outline" ? "outline" : "initialization";
   const collected = collect(graph, templateSourcesAt(graph, instance, order));
   const { bySource, byField, byName } = localMaps(graph, childrenOf(graph, instance), reader);
-  const system = new Set<NodeId>(Object.values(graph.system));
   const seen = new Set<string>([addressKey(instance)]);
   const merged: MergedEntry[] = [];
   for (const { node, isRef } of [...collected].reverse()) {
@@ -147,7 +146,7 @@ export function mergedList(graph: Graph, instance: NodeAddress, reader: MergeRea
       (named !== undefined && !isTupleAt(graph, named) ? named : undefined);
     if (local !== undefined) {
       merged.push({ template: node, node: local, filledBy: "local" });
-    } else if (isRef && !(typeof node === "string" && system.has(node))) {
+    } else if (isRef && !(typeof node === "string" && isSystemNode(graph.system, node))) {
       merged.push({ template: node, node, filledBy: "target" });
     } else {
       const emptyField =

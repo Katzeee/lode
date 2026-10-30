@@ -8,14 +8,13 @@ import { isNamedSupertag } from "../tags/roles.ts";
 import { templateSources, type SourceOrder } from "../tags/sources.ts";
 import { template, templates } from "../tags/templates.ts";
 import { addressKey, isProjected, sameAddress, storedNode, type NodeAddress } from "./address.ts";
-import { childrenOf, definitionAt, isMetanodeAt, kindAt, metanodeCandidatesAt, ownerAt, type Line } from "./readers.ts";
+import { childrenOf, definitionAt, isMetanodeAt, kindAt, metanodeCandidatesAt, type Line } from "./readers.ts";
 
 /**
  * The address's templates. A real node reads its own fold. A projected node reads through its
  * projected metanodes: a metanode's template is the metanode template, otherwise the applications every
  * valid candidate lists, folded as stored candidates are, with values already projected where the
- * boundary says. A candidate is valid when the factory returned a projection, or returned a shared
- * real node that this address owns; the source target's own ownership is not tested.
+ * boundary says.
  */
 export function templatesAt(graph: Graph, address: NodeAddress): NodeAddress[] | undefined {
   if (!isProjected(address)) {
@@ -24,14 +23,12 @@ export function templatesAt(graph: Graph, address: NodeAddress): NodeAddress[] |
   if (isMetanodeAt(graph, address)) {
     return [graph.system.metaTemplate];
   }
-  const applications = metanodeCandidatesAt(graph, address)
-    .filter((metanode) => isProjected(metanode) || sameAddress(ownerAt(graph, metanode), address))
-    .flatMap((metanode) =>
-      childrenOf(graph, metanode)
-        .map((line) => line.node)
-        // Nominal, not structural: an application with no value is still the fold's seed.
-        .filter((child) => kindAt(graph, child) === "tuple" && definitionAt(graph, child) === graph.system.tags),
-    );
+  const applications = metanodeCandidatesAt(graph, address).flatMap((metanode) =>
+    childrenOf(graph, metanode)
+      .map((line) => line.node)
+      // Nominal, not structural: an application with no value is still the fold's seed.
+      .filter((child) => kindAt(graph, child) === "tuple" && definitionAt(graph, child) === graph.system.tags),
+  );
   const values = foldApplications<Line>(
     applications.map((application) => childrenOf(graph, application)),
     {

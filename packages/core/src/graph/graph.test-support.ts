@@ -6,7 +6,8 @@ import { nextCommandId, type CommandId } from "../store/command-id.ts";
 import { writeDocId, type DocId } from "../store/doc-id.ts";
 import type { NodeId } from "../store/node-id.ts";
 import { COMMAND, EXCLUDED, GENESIS } from "../store/origins.ts";
-import { writeCreationFacts, writeListed, writeSupport } from "../store/records.ts";
+import { insertListing } from "../store/listings.ts";
+import { writeCreationFacts, writeSupport } from "../store/records.ts";
 import { Store } from "../store/store.ts";
 import type { Graph } from "./graph.ts";
 import { SYSTEM_ROLES, systemNodes, type SystemRole } from "./system-nodes.ts";
@@ -35,7 +36,9 @@ export function replicas(nodes: { name: string; parent?: string; listed?: boolea
     const node = parent ? parent.createNode() : base.tree.createNode();
     writeCreationFacts(node, { id: id(spec.name) });
     if (spec.parent !== undefined) {
-      writeListed(node, id(spec.parent), spec.listed ?? true);
+      if (spec.listed ?? true) {
+        insertListing(base, id(spec.parent), id(spec.name));
+      }
     }
     writeSupport(node, command);
     written.set(spec.name, node);

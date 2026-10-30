@@ -4,9 +4,10 @@ import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
 import { allocate } from "./allocate.ts";
 import { nextCommandId } from "./command-id.ts";
+import { listingEntries } from "./listings.ts";
 import type { NodeId } from "./node-id.ts";
 import { COMMAND } from "./origins.ts";
-import { kindOf, listedBy, nameOf, sourceOf, supportsOf, tupleDefinitionIdOf, writeSupport } from "./records.ts";
+import { kindOf, sourceOf, supportsOf, tupleDefinitionIdOf, writeSupport } from "./records.ts";
 import { relationRecords } from "./relations.ts";
 import { base, node, replica } from "./replicas.test-support.ts";
 import { parentIdOf } from "./store.ts";
@@ -33,7 +34,7 @@ test("undo of a command keeps its allocation and takes one step", () => {
   for (const id of ["M", "A"]) {
     writeSupport(node(a, id), command);
   }
-  nameOf(node(a, "A")).insert(0, "typed");
+  a.store.name("A" as NodeId).insert(0, "typed");
   a.store.doc.commit({ origin: COMMAND });
 
   strictEqual(a.undo.undo(), true);
@@ -41,13 +42,18 @@ test("undo of a command keeps its allocation and takes one step", () => {
 
   const app = node(a, "A");
   deepStrictEqual(
-    [parentIdOf(app), kindOf(app), listedBy(app, "M" as NodeId), relationRecords(node(a, "H")).length],
+    [
+      parentIdOf(app),
+      kindOf(app),
+      listingEntries(a.store, "M" as NodeId).includes("A" as NodeId),
+      relationRecords(node(a, "H")).length,
+    ],
     ["M", "tuple", true, 1],
   );
   deepStrictEqual([tupleDefinitionIdOf(app), sourceOf(app)], ["SYS_A13", "template-application"]);
-  deepStrictEqual([supportsOf(app).size, nameOf(app).toString()], [0, ""]);
+  deepStrictEqual([supportsOf(app).size, a.store.name("A" as NodeId).toString()], [0, ""]);
 
   a.undo.redo();
   deepStrictEqual([tupleDefinitionIdOf(app), sourceOf(app)], ["SYS_A13", "template-application"]);
-  deepStrictEqual([supportsOf(app).size, nameOf(app).toString()], [1, "typed"]);
+  deepStrictEqual([supportsOf(app).size, a.store.name("A" as NodeId).toString()], [1, "typed"]);
 });

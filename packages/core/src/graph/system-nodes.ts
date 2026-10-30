@@ -30,3 +30,17 @@ export type SystemNodes = Readonly<Record<SystemRole, NodeId>>;
 export function systemNodes(docId: DocId): SystemNodes {
   return Object.fromEntries(SYSTEM_ROLES.map((role) => [role, `${docId}:${role}`])) as Record<SystemRole, NodeId>;
 }
+
+/** The workspace's containers: they live in the workspace itself, like any outline node. */
+const CONTAINER_ROLES: readonly SystemRole[] = ["root", "home", "trash", "schema"];
+
+/**
+ * A system node in the reference system's sense: a definition role, or a node genesis derives from one
+ * (its metanode and tag application, `<role id>:…`). The reference system keeps these in a separate
+ * system file; the workspace's containers are not among them.
+ */
+export function isSystemNode(system: SystemNodes, id: NodeId): boolean {
+  return SYSTEM_ROLES.some(
+    (role) => !CONTAINER_ROLES.includes(role) && (id === system[role] || id.startsWith(`${system[role]}:`)),
+  );
+}

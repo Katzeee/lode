@@ -4,7 +4,8 @@ import { UndoManager } from "loro-crdt";
 import { nextCommandId, type CommandId } from "./command-id.ts";
 import type { NodeId } from "./node-id.ts";
 import { COMMAND, EXCLUDED, GENESIS } from "./origins.ts";
-import { writeCreationFacts, writeListed } from "./records.ts";
+import { insertListing } from "./listings.ts";
+import { writeCreationFacts } from "./records.ts";
 import { Store } from "./store.ts";
 
 /** One replica of a test document with its own undo manager, configured as a workspace's is. */
@@ -24,7 +25,9 @@ export function base(nodes: { id: string; parent?: string; listed?: boolean }[])
     const node = parent ? parent.createNode() : store.tree.createNode();
     writeCreationFacts(node, { id: spec.id as NodeId });
     if (spec.parent !== undefined) {
-      writeListed(node, spec.parent as NodeId, spec.listed ?? true);
+      if (spec.listed ?? true) {
+        insertListing(store, spec.parent as NodeId, spec.id as NodeId);
+      }
     }
     store.doc.commit({ origin: GENESIS });
   }

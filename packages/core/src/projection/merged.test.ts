@@ -1,8 +1,9 @@
-// Purpose: Guards the merged template list: field precedence and position across tags, name and source matching, and the content gate.
+// Purpose: Guards the merged template list: field precedence and position across tags, name and source matching, the content gate, and which references show their target.
 
 import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
-import { nameOf } from "../store/records.ts";
+import { writeSupport } from "../store/records.ts";
+import { insertListing } from "../store/listings.ts";
 import { writeMention } from "../store/text.ts";
 import { child, command, id, node, replicas } from "../graph/graph.test-support.ts";
 import { name, tag } from "../tags/tags.test-support.ts";
@@ -95,10 +96,10 @@ test("formatted text never matches literal text that spells the format; equal ri
       ["alsoBold", "y"],
       ["sameBold", "y"],
     ]) {
-      nameOf(node(r!, each!)).insert(0, text!);
+      r!.store.name(id(each!)).insert(0, text!);
     }
     for (const each of ["bold", "alsoBold", "sameBold"]) {
-      nameOf(node(r!, each)).mark({ start: 0, end: 1 }, "bold", true);
+      r!.store.name(id(each)).mark({ start: 0, end: 1 }, "bold", true);
     }
   });
   tag(r!, "I", ["A"]);
@@ -125,15 +126,15 @@ test("each adjacent inline mention or date is its own position in a name", () =>
         ["twoToo", 2],
       ] as const) {
         for (let index = 0; index < count; index++) {
-          writeMention(nameOf(node(r!, each)), index, id("X"));
+          writeMention(r!.store.name(id(each)), index, id("X"));
         }
       }
       for (const [each, count] of [
         ["dates", 2],
         ["date", 1],
       ] as const) {
-        nameOf(node(r!, each)).insert(0, "\uFFFC".repeat(count));
-        nameOf(node(r!, each)).mark({ start: 0, end: count }, "date", "2026-10-28");
+        r!.store.name(id(each)).insert(0, "\uFFFC".repeat(count));
+        r!.store.name(id(each)).mark({ start: 0, end: count }, "date", "2026-10-28");
       }
     },
   );
@@ -144,6 +145,26 @@ test("each adjacent inline mention or date is its own position in a name", () =>
     [
       [id("two"), id("twoToo")],
       [id("dates"), { instance: id("I"), root: id("dates"), source: id("dates"), mode: "template" }],
+    ],
+  );
+});
+
+test("a template's reference to a workspace container shows its target; one to a system definition does not", () => {
+  const [r] = replicas([{ name: "I" }, { name: "home" }, { name: "supertag" }]);
+  // Named, so neither reads as an empty template child, which the merged list skips.
+  name(r!, "home", "supertag");
+  template(r!, "A");
+  command(r!, [], (cmd) => {
+    insertListing(r!.store, id("A"), id("home"), 0);
+    insertListing(r!.store, id("A"), id("supertag"), 1);
+    writeSupport(node(r!, "A"), cmd);
+  });
+  tag(r!, "I", ["A"]);
+  deepStrictEqual(
+    mergedList(r!, id("I"), { kind: "outline" }).map((entry) => [entry.template, entry.filledBy]),
+    [
+      [id("home"), "target"],
+      [id("supertag"), "projection"],
     ],
   );
 });

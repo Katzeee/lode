@@ -3,7 +3,7 @@
 import type { NodeId } from "../store/node-id.ts";
 import { isEmpty } from "../graph/emptiness.ts";
 import type { Graph } from "../graph/graph.ts";
-import { ownedMetanodes } from "../graph/metanode.ts";
+import { metanodeTargets } from "../graph/metanode.ts";
 import { listedNodes, type Occurrence } from "../graph/occurrences.ts";
 import { tupleDefinitionRead } from "../graph/presence.ts";
 import { isTupleType, tupleValues } from "../graph/tuples.ts";
@@ -78,7 +78,7 @@ function add<V>(folded: V[][], value: V, values: FoldValues<V>): void {
  * within one (list order); they are folded together.
  */
 export function rawTagValues(graph: Graph, host: NodeId): TagValue[] {
-  const lists = ownedMetanodes(graph, host).flatMap((metanode) =>
+  const lists = metanodeTargets(graph, host).flatMap((metanode) =>
     applications(graph, metanode).map((application) =>
       tupleValues(graph, application).map((occurrence) => ({ application, occurrence })),
     ),

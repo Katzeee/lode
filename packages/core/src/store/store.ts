@@ -1,10 +1,10 @@
 // Purpose: Provides workspace storage access to the document, node tree and reference leaves.
 
-import { LoroDoc, type LoroTree, type LoroTreeNode } from "loro-crdt";
+import { LoroDoc, type LoroText, type LoroTree, type LoroTreeNode } from "loro-crdt";
 import { HolderIndex } from "./holder-index.ts";
 import { Locator } from "./locator.ts";
 import type { NodeId } from "./node-id.ts";
-import { idOf, refOf, writeRef } from "./records.ts";
+import { idOf } from "./records.ts";
 import { configureText } from "./text.ts";
 
 const TREE = "nodes";
@@ -37,6 +37,16 @@ export class Store {
     return this.#locator.find(id);
   }
 
+  /**
+   * The node's name: a root text keyed by NodeId, not a container in the node's map. A root text needs
+   * no creation operation, so no two replicas race to create it, and undoing an edit to it survives
+   * remote tree operations, which an undo of a text inside a locally created tree node's map does not
+   * in loro-crdt 1.17.1.
+   */
+  name(id: NodeId): LoroText {
+    return this.doc.getText(`name:${id}`);
+  }
+
   node(id: NodeId): LoroTreeNode {
     const node = this.find(id);
     if (!node) {
@@ -52,26 +62,7 @@ export function parentIdOf(node: LoroTreeNode): NodeId | undefined {
   return parent && idOf(parent);
 }
 
-/** Owned nodes and reference leaves under `node`, in their one shared order. */
+/** The nodes `node` owns. Their tree order carries no meaning: listings are stored apart. */
 export function treeChildren(node: LoroTreeNode): LoroTreeNode[] {
   return node.children() ?? [];
-}
-
-/** The reference leaves under `parent` naming `target`. */
-export function leavesFor(parent: LoroTreeNode, target: NodeId): LoroTreeNode[] {
-  return treeChildren(parent).filter((child) => refOf(child) === target);
-}
-
-export function createLeaf(parent: LoroTreeNode, index: number, target: NodeId): LoroTreeNode {
-  const leaf = parent.createNode(index);
-  writeRef(leaf, target);
-  return leaf;
-}
-
-/** Leaves carry no identity, so deleting one never removes a node. */
-export function deleteLeaf(store: Store, leaf: LoroTreeNode): void {
-  if (idOf(leaf) !== undefined) {
-    throw new Error("only reference leaves are deleted");
-  }
-  store.tree.delete(leaf.id);
 }

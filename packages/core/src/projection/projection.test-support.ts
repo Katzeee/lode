@@ -1,7 +1,7 @@
 // Purpose: Builds templates for projection tests: supertags with children, field tuples and tagged instances.
 
 import { child, command, id, type Replica } from "../graph/graph.test-support.ts";
-import { nameOf, writeSupport } from "../store/records.ts";
+import { writeSupport } from "../store/records.ts";
 import { name, supertags } from "../tags/tags.test-support.ts";
 
 /** Creates `names` as children listed by `parent`, each named after itself. */
@@ -36,7 +36,7 @@ export function template(r: Replica, supertag: string, ...childNames: string[]):
 /** Gives `node` the name `text`, as a command. */
 export function nameAs(r: Replica, node: string, text: string): void {
   command(r, [], (cmd) => {
-    nameOf(r.store.node(id(node))).insert(0, text);
+    r.store.name(id(node)).insert(0, text);
     writeSupport(r.store.node(id(node)), cmd);
   });
 }

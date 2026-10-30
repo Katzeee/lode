@@ -4,11 +4,15 @@ import type { LoroTreeNode } from "loro-crdt";
 import type { CommandId } from "./command-id.ts";
 import type { NodeId } from "./node-id.ts";
 import { ALLOCATION } from "./origins.ts";
-import { writeCreationFacts, writeListed, type CreationFacts } from "./records.ts";
+import { insertListing } from "./listings.ts";
+import { writeCreationFacts, type CreationFacts } from "./records.ts";
 import { writeRelation, type Relation } from "./relations.ts";
 import type { Store } from "./store.ts";
 
-/** A node a command creates, placed at its destination; no `parent` makes it ownerless. */
+/**
+ * A node a command creates under its owner `parent`, or ownerless with none; `listed` lists it there
+ * too, at entry `index` or at the end.
+ */
 export type Allocation = CreationFacts & { parent?: NodeId; index?: number; listed: boolean };
 
 /** A relation the creating command establishes toward a node it creates, such as a host's metanode. */
@@ -34,10 +38,10 @@ export function allocate(
   const resolve = (id: NodeId) => created.get(id) ?? store.node(id);
   for (const spec of nodes) {
     const parent = spec.parent === undefined ? undefined : resolve(spec.parent);
-    const node = parent ? parent.createNode(spec.index) : store.tree.createNode(undefined, spec.index);
+    const node = parent ? parent.createNode() : store.tree.createNode();
     writeCreationFacts(node, spec);
-    if (spec.parent !== undefined) {
-      writeListed(node, spec.parent, spec.listed);
+    if (spec.parent !== undefined && spec.listed) {
+      insertListing(store, spec.parent, spec.id, spec.index);
     }
     created.set(spec.id, node);
   }

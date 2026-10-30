@@ -2,8 +2,8 @@
 
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
-import { createLeaf } from "../store/store.ts";
-import { child, command, id, node, replicas, sync, type Replica } from "../graph/graph.test-support.ts";
+import { insertListing } from "../store/listings.ts";
+import { child, command, id, replicas, sync, type Replica } from "../graph/graph.test-support.ts";
 import { rawTagValues } from "./fold.ts";
 import { hasValidTemplate } from "./roles.ts";
 import { supertags, tag } from "./tags.test-support.ts";
@@ -84,7 +84,7 @@ function application(r: Replica, meta: string, app: string, values: { name: stri
     () =>
       values.forEach((value, index) => {
         if (!value.owned) {
-          createLeaf(node(r, app), index, id(value.name));
+          insertListing(r.store, id(app), id(value.name), index);
         }
       }),
     [{ host: id("I"), relation: { type: "meta", target: id(meta) } }],

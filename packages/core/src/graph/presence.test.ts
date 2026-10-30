@@ -2,7 +2,7 @@
 
 import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
-import { nameOf, writeSupport } from "../store/records.ts";
+import { writeSupport } from "../store/records.ts";
 import { child, command, id, node, replicas, sync, type Replica } from "./graph.test-support.ts";
 import { occurrences } from "./occurrences.ts";
 import { isPresent, kindRead, ownerOf, sourceRead, tupleDefinitionRead } from "./presence.ts";
@@ -20,7 +20,7 @@ const reads = (r: Replica) => ({
 
 test("an undone creation with no other support reads as owned by Trash, keeping its source", () => {
   const [a] = replicas([{ name: "H" }]);
-  command(a!, [created()], () => nameOf(node(a!, "R")).insert(0, "typed"));
+  command(a!, [created()], () => a!.store.name(id("R")).insert(0, "typed"));
 
   a!.undo.undo();
   deepStrictEqual(reads(a!), {
@@ -31,7 +31,7 @@ test("an undone creation with no other support reads as owned by Trash, keeping 
     source: id("S"),
     listedByHost: false,
   });
-  deepStrictEqual(nameOf(node(a!, "R")).toString(), "");
+  deepStrictEqual(a!.store.name(id("R")).toString(), "");
 
   a!.undo.redo();
   deepStrictEqual(reads(a!), {
@@ -75,7 +75,7 @@ test("an edit of a created node's child keeps the creation readable after the cr
   command(a!, [created(), child("C", "R")]);
   sync(a!, b!);
   command(b!, [], (cmd) => {
-    nameOf(node(b!, "C")).insert(0, "remote");
+    b!.store.name(id("C")).insert(0, "remote");
     writeSupport(node(b!, "C"), cmd);
   });
   a!.undo.undo();

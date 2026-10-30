@@ -19,6 +19,26 @@ adding an abstraction or removing one.
 - Fix a smell when you find it, with the right mechanism. Deferral compounds: code accretes around
   the smell and the fix only gets harder.
 
+## Reference alignment
+
+Match the reference system's observable serial behaviour; give concurrent-only states explicit Lode
+policies; treat its implementation mechanisms as replaceable, and justify any copied mechanism by the
+observable effect it produces. Before reproducing anything, classify each requirement, with evidence:
+
+- **Observable (A)**: what one user's sequential operations show in the UI or an export. Match it. It
+  counts as observable only with evidence that a serial path reaches it (an export, a reproducible UI
+  path, or a source call path); without that it stays unclassified until checked.
+- **Mechanism (B)**: how the reference system produces a result (ghost proxies, in-memory ids,
+  children arrays, separate files, single-transaction undo). Replace it with a CRDT-native
+  representation whenever the observable results stay the same.
+- **Concurrent (C)**: states only concurrent replicas reach. Lode sets the policy, and it reduces to
+  the reference system's result when the history is serial.
+
+A copied mechanism earns its place only through an observable effect it alone produces. When that
+effect appears only in edge structures, weigh it against the mechanism's cost and record an explicit
+deviation instead of copying the mechanism. A review finding is checked against this classification
+before it is fixed.
+
 ## Code comments
 
 - Comments and docstrings explain this project's semantics and design rationale; keep reference-project

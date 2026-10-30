@@ -2,7 +2,8 @@
 
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
-import { writeListed, writeSupport } from "../store/records.ts";
+import { deleteListings } from "../store/listings.ts";
+import { writeSupport } from "../store/records.ts";
 import { isStrictlyEmpty } from "./emptiness.ts";
 import { child, command, id, node, replicas, sync, type Replica } from "./graph.test-support.ts";
 import { isTuple, valueSlots } from "./tuples.ts";
@@ -18,7 +19,7 @@ function fixture() {
 
 function unlist(r: Replica, value: string): void {
   command(r, [], (cmd) => {
-    writeListed(node(r, value), id("T"), false);
+    deleteListings(r.store, id("T"), id(value));
     writeSupport(node(r, "T"), cmd);
   });
 }
@@ -46,7 +47,7 @@ test("two replicas deleting the same last value keep both replacement values", (
     [b, "E2"],
   ] as const) {
     command(r, [child(name, "T")], (cmd) => {
-      writeListed(node(r, "V1"), id("T"), false);
+      deleteListings(r.store, id("T"), id("V1"));
       writeSupport(node(r, "T"), cmd);
     });
   }

@@ -1,4 +1,4 @@
-// Purpose: Guards relation liveness at both endpoints and the effective metanode among concurrent candidates.
+// Purpose: Guards relation liveness at both endpoints, a metanode pointer live only while its host owns the target, and the effective metanode among concurrent candidates.
 
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
@@ -8,17 +8,23 @@ import { COMMAND } from "../store/origins.ts";
 import { relationRecords, writeRelation } from "../store/relations.ts";
 import { writeSupport } from "../store/records.ts";
 import { child, command, id, node, replicas, sync } from "./graph.test-support.ts";
-import { effectiveMetanode, isMetanode, metanodeTargets, metanodeWriteTarget } from "./metanode.ts";
+import { effectiveMetanode, isMetanode, metanodeTargets } from "./metanode.ts";
 import { liveMetaRecords } from "./relations.ts";
 
 const meta = (target: string) => ({ type: "meta" as const, target: id(target) });
 
 test("a relation is not live once either endpoint loses presence", () => {
   // The record is a creation fact, written with the allocation, so Undo leaves it stored.
-  const [a] = replicas([{ name: "H" }, { name: "M", parent: "H", listed: false }]);
+  const [a] = replicas([{ name: "H" }]);
   const cmd = nextCommandId(a!.store.doc);
-  allocate(a!.store, cmd, [child("H2", "H")], [{ host: id("H2"), relation: meta("M") }]);
+  allocate(
+    a!.store,
+    cmd,
+    [child("H2", "H"), child("M2", "H2", { listed: false })],
+    [{ host: id("H2"), relation: meta("M2") }],
+  );
   writeSupport(node(a!, "H2"), cmd);
+  writeSupport(node(a!, "M2"), cmd);
   a!.store.doc.commit({ origin: COMMAND });
   strictEqual(liveMetaRecords(a!, id("H2")).length, 1);
   a!.undo.undo();
@@ -38,19 +44,19 @@ test("a relation is not live once either endpoint loses presence", () => {
   strictEqual(liveMetaRecords(b!, id("H")).length, 1);
 });
 
-test("concurrent first metanodes: the smallest owned candidate is effective, every candidate is kept", () => {
+test("a pointer to a metanode its host does not own is not live; owned candidates stay, smallest first", () => {
   const [a, b] = replicas([{ name: "H" }, { name: "Elsewhere" }]);
   command(a!, [child("M2", "H", { listed: false })], (cmd) => writeRelation(a!.store, node(a!, "H"), meta("M2"), cmd));
   command(b!, [child("M1", "Elsewhere", { listed: false })], (cmd) => {
     writeRelation(b!.store, node(b!, "H"), meta("M1"), cmd);
     writeSupport(node(b!, "H"), cmd);
   });
+  command(b!, [child("M3", "H", { listed: false })], (cmd) => writeRelation(b!.store, node(b!, "H"), meta("M3"), cmd));
   sync(a!, b!);
 
   for (const r of [a!, b!]) {
-    deepStrictEqual(metanodeTargets(r, id("H")), [id("M1"), id("M2")]);
-    strictEqual(effectiveMetanode(r, id("H")), id("M2"), "M1 is not owned by H");
-    strictEqual(metanodeWriteTarget(r, id("H")), id("M1"), "writes follow the pointer, owned or not");
+    deepStrictEqual(metanodeTargets(r, id("H")), [id("M2"), id("M3")], "M1 is owned elsewhere");
+    strictEqual(effectiveMetanode(r, id("H")), id("M2"));
     deepStrictEqual([isMetanode(r, id("M2")), isMetanode(r, id("M1"))], [true, false]);
   }
 });
