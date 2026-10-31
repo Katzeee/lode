@@ -1,12 +1,11 @@
 // Purpose: Implements the emptiness predicates, each named after the entry points that use it.
 
 import type { NodeId } from "../store/node-id.ts";
-import { descriptionOf } from "../store/records.ts";
 import { hasName, nameString } from "./content.ts";
 import type { Graph } from "./graph.ts";
 import { effectiveMetanode } from "./metanode.ts";
 import { listedNodes } from "./occurrences.ts";
-import { tupleDefinitionRead } from "./presence.ts";
+import { descriptionRead, tupleDefinitionRead } from "./presence.ts";
 import { liveAssocRecords } from "./relations.ts";
 import { isInputPosition, isTuple, isTupleList, isTupleType, tupleValue, type ValueSlot } from "./tuples.ts";
 
@@ -49,7 +48,7 @@ export function holderIsEmpty(graph: Graph, holder: NodeId): boolean {
   return (
     listedNodes(graph, holder).length === 0 &&
     nameString(graph, holder).trim() === "" &&
-    (descriptionOf(graph.store, holder)?.trim() ?? "") === "" &&
+    (descriptionRead(graph, holder)?.trim() ?? "") === "" &&
     liveAssocRecords(graph, holder).length === 0 &&
     (metanode === undefined || listedNodes(graph, metanode).length === 0)
   );

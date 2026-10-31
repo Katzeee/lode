@@ -1,7 +1,15 @@
 // Purpose: Decides whether a node is present and reads the facts presence gates, such as its owner and kind.
 
 import type { NodeId } from "../store/node-id.ts";
-import { hasSupport, kindOf, sourceOf, tupleDefinitionIdOf, type Kind } from "../store/records.ts";
+import {
+  descriptionOf,
+  hasSupport,
+  kindOf,
+  readsReal,
+  sourceOf,
+  tupleDefinitionIdOf,
+  type Kind,
+} from "../store/records.ts";
 import type { Graph } from "./graph.ts";
 
 /**
@@ -39,13 +47,24 @@ export function ownerOf(graph: Graph, id: NodeId): NodeId | undefined {
   return isPresent(graph, id) ? graph.store.ownership.physicalOwner(id) : graph.system.trash;
 }
 
-/** Kind and tuple definition are creation facts, absent while the node is not present. */
+/**
+ * Kind, tuple definition and description are gated creation facts: absent while the node is not
+ * present, or while it reads real, when the stored values stay untouched for the creator's Redo.
+ */
+function creationFactsRead(graph: Graph, id: NodeId): boolean {
+  return isPresent(graph, id) && !readsReal(graph.store, id);
+}
+
 export function kindRead(graph: Graph, id: NodeId): Kind | undefined {
-  return isPresent(graph, id) ? kindOf(graph.store, id) : undefined;
+  return creationFactsRead(graph, id) ? kindOf(graph.store, id) : undefined;
 }
 
 export function tupleDefinitionRead(graph: Graph, id: NodeId): NodeId | undefined {
-  return isPresent(graph, id) ? tupleDefinitionIdOf(graph.store, id) : undefined;
+  return creationFactsRead(graph, id) ? tupleDefinitionIdOf(graph.store, id) : undefined;
+}
+
+export function descriptionRead(graph: Graph, id: NodeId): string | undefined {
+  return creationFactsRead(graph, id) ? descriptionOf(graph.store, id) : undefined;
 }
 
 /** The source stays readable after an undone creation: the reference system keeps it then too. */

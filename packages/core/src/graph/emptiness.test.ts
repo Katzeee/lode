@@ -1,8 +1,9 @@
-// Purpose: Guards field-value emptiness by the first tuple of a field.
+// Purpose: Guards field-value emptiness by the first tuple of a field, and that holder emptiness reads the gated description.
 
 import { strictEqual } from "node:assert/strict";
 import { test } from "node:test";
-import { isEmpty } from "./emptiness.ts";
+import { writeDescription, writeReal } from "../store/records.ts";
+import { holderIsEmpty, isEmpty } from "./emptiness.ts";
 import { child, command, id, replicas } from "./graph.test-support.ts";
 import { writableName } from "./content.ts";
 
@@ -17,3 +18,11 @@ for (const namedFirst of [false, true]) {
     strictEqual(isEmpty(r!, id("H")), !namedFirst);
   });
 }
+
+test("a holder that reads real is empty whatever description it stores", () => {
+  const [r] = replicas([{ name: "H" }]);
+  command(r!, [child("X", "H")], () => writeDescription(r!.store, id("X"), "note"));
+  strictEqual(holderIsEmpty(r!, id("X")), false);
+  command(r!, [], () => writeReal(r!.store, id("X"), r!.store.doc.peerIdStr));
+  strictEqual(holderIsEmpty(r!, id("X")), true);
+});

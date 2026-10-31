@@ -14,9 +14,13 @@ function listing(store: Store, parent: NodeId): LoroMovableList {
   return store.doc.getMovableList(`list:${parent}`);
 }
 
-/** The parent's entries in order, duplicates included. */
+/**
+ * The parent's entries in order, duplicates included. Reading a root container that was never written
+ * adds an empty one to this replica's snapshot, so an id this replica never allocated reads as having
+ * none without touching Loro; an allocated id may still register an empty container.
+ */
 export function listingEntries(store: Store, parent: NodeId): NodeId[] {
-  return listing(store, parent).toArray() as NodeId[];
+  return store.has(parent) ? (listing(store, parent).toArray() as NodeId[]) : [];
 }
 
 /**

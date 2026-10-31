@@ -3,7 +3,7 @@
 import type { Delta, LoroText } from "loro-crdt";
 import type { NodeId } from "../store/node-id.ts";
 import { COMMAND, NAME_SEED } from "../store/origins.ts";
-import { isNameSeeded, nameBaseOf, writeNameSeeded } from "../store/records.ts";
+import { isNameSeeded, nameBaseOf, readsReal, writeNameSeeded } from "../store/records.ts";
 import { nameLength, nameText } from "../store/text.ts";
 import type { Graph } from "./graph.ts";
 import { isPresent } from "./presence.ts";
@@ -13,14 +13,17 @@ import { isPresent } from "./presence.ts";
  * name: serially no live command's text remains on it, since every text write also writes support and
  * undoing that command undoes both. A derived copy is created with its copied name as `nameBase`,
  * because replicas that create it concurrently would each insert the name into one shared text and
- * double it; it reads `nameBase` until its text is first written. Reading never writes.
+ * double it; it reads `nameBase` until its text is first written. A node that reads real reads its text:
+ * make-real stores its empty name there. Reading never writes.
  */
 export function nameOf(graph: Graph, id: NodeId): Delta<string>[] {
-  if (!isPresent(graph, id)) {
-    return [];
-  }
-  const base = nameBaseOf(graph.store, id);
-  return base !== undefined && !isNameSeeded(graph.store, id) ? base : nameText(graph.store, id).toDelta();
+  return isPresent(graph, id) ? (readsBase(graph, id) ?? nameText(graph.store, id).toDelta()) : [];
+}
+
+/** The base a copy reads while it is neither seeded nor real. */
+function readsBase(graph: Graph, id: NodeId): Delta<string>[] | undefined {
+  const { store } = graph;
+  return isNameSeeded(store, id) || readsReal(store, id) ? undefined : nameBaseOf(store, id);
 }
 
 /** Any character counts, an inline anchor included; a node missing from this document has none. */
@@ -40,13 +43,14 @@ export function nameString(graph: Graph, id: NodeId): string {
  * in a commit the undo manager skips, so undoing that edit returns the name to its base rather than
  * to nothing. The command's writes so far are committed under its own origin first, which keeps them
  * in its undo step. Two replicas making the first edit of one copy concurrently both seed it, and the
- * base text appears twice (Lode's policy for a state only concurrency reaches).
+ * base text appears twice (Lode's policy for a state only concurrency reaches). A node that reads real
+ * is never seeded.
  */
 export function writableName(graph: Graph, id: NodeId): LoroText {
   const { store } = graph;
   const text = nameText(store, id);
-  const base = nameBaseOf(store, id);
-  if (base !== undefined && !isNameSeeded(store, id)) {
+  const base = readsBase(graph, id);
+  if (base !== undefined) {
     if (store.doc.getPendingTxnLength() > 0) {
       store.doc.commit({ origin: COMMAND });
     }

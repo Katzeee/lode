@@ -1,4 +1,4 @@
-// Purpose: Reads and writes a node's facts and peer support records in the root map shared by its incarnations.
+// Purpose: Reads and writes a node's facts and per-peer support and real records in the root map shared by its incarnations.
 
 import type { Delta, LoroMap, PeerID } from "loro-crdt";
 import { peerOf, type CommandId } from "./command-id.ts";
@@ -55,6 +55,7 @@ const DESCRIPTION = "description";
 const NAME_BASE = "nameBase";
 const NAME_SEEDED = "nameSeeded";
 const SUPPORT = "sup|";
+const REAL = "real|";
 
 /**
  * The root map `node:<id>`, shared by every incarnation of the node, so concurrent creations of one
@@ -109,6 +110,23 @@ export function supportsOf(store: Store, id: NodeId): Map<PeerID, CommandId> {
 
 export function hasSupport(store: Store, id: NodeId): boolean {
   return (factsOf(store, id)?.keys() as string[] | undefined)?.some((key) => key.startsWith(SUPPORT)) ?? false;
+}
+
+/**
+ * Whether the node reads real: some peer stored its read state while it was not present. Each peer
+ * keeps its own key, because one cleared value would let one replica's Undo restore the creation facts
+ * over another replica's make-real that still keeps the node present.
+ */
+export function readsReal(store: Store, id: NodeId): boolean {
+  return (factsOf(store, id)?.keys() as string[] | undefined)?.some((key) => key.startsWith(REAL)) ?? false;
+}
+
+/**
+ * Records `peer`'s contribution to the node reading real. The value never changes, so writing a key
+ * that is already there is no Loro operation and leaves the key with the command that wrote it.
+ */
+export function writeReal(store: Store, id: NodeId, peer: PeerID): void {
+  writableFacts(store, id).set(REAL + peer, true);
 }
 
 /** The facts a node is created with; they are written once, in the allocation commit. */

@@ -1,16 +1,23 @@
-// Purpose: Guards that an undone creation reads as Trash content while another replica's support keeps it readable, that concurrent incarnations of one NodeId read as one node, and that presence closes over every incarnation, ownership cycles included.
+// Purpose: Guards that an undone creation reads as Trash content while another replica's support keeps it readable, that a node reading real hides its gated creation facts without clearing them, that concurrent incarnations of one NodeId read as one node, and that presence closes over every incarnation, ownership cycles included.
 
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
 import { allocate } from "../store/allocate.ts";
 import { nextCommandId } from "../store/command-id.ts";
-import { COMMAND } from "../store/origins.ts";
-import { writeSupport } from "../store/records.ts";
+import { ALLOCATION, COMMAND } from "../store/origins.ts";
+import {
+  descriptionOf,
+  kindOf,
+  tupleDefinitionIdOf,
+  writeDescription,
+  writeReal,
+  writeSupport,
+} from "../store/records.ts";
 import { Store } from "../store/store.ts";
 import { child, command, id, replicas, type Replica } from "./graph.test-support.ts";
 import { send, sync } from "../store/replicas.test-support.ts";
 import { listedNodes, occurrences } from "./occurrences.ts";
-import { isPresent, kindRead, ownerOf, sourceRead, tupleDefinitionRead } from "./presence.ts";
+import { descriptionRead, isPresent, kindRead, ownerOf, sourceRead, tupleDefinitionRead } from "./presence.ts";
 import { nameString, writableName } from "./content.ts";
 
 const created = () => child("R", "H", { kind: "tuple", tupleDefinitionId: id("D"), sourceId: id("S") });
@@ -20,6 +27,7 @@ const reads = (r: Replica) => ({
   owner: ownerOf(r, id("R")),
   kind: kindRead(r, id("R")),
   definition: tupleDefinitionRead(r, id("R")),
+  description: descriptionRead(r, id("R")),
   source: sourceRead(r, id("R")),
   listedByHost: occurrences(r, id("H")).some((o) => o.node === id("R")),
 });
@@ -27,6 +35,9 @@ const reads = (r: Replica) => ({
 test("an undone creation with no other support reads as owned by Trash, keeping its source", () => {
   const [a] = replicas([{ name: "H" }]);
   command(a!, [created()], () => writableName(a!, id("R")).insert(0, "typed"));
+  // A copy's allocation writes its description in the excluded commit, so Undo keeps it stored.
+  writeDescription(a!.store, id("R"), "note");
+  a!.store.doc.commit({ origin: ALLOCATION });
 
   a!.undo.undo();
   deepStrictEqual(reads(a!), {
@@ -34,6 +45,7 @@ test("an undone creation with no other support reads as owned by Trash, keeping 
     owner: id("trash"),
     kind: undefined,
     definition: undefined,
+    description: undefined,
     source: id("S"),
     listedByHost: false,
   });
@@ -45,6 +57,7 @@ test("an undone creation with no other support reads as owned by Trash, keeping 
     owner: id("H"),
     kind: "tuple",
     definition: id("D"),
+    description: "note",
     source: id("S"),
     listedByHost: true,
   });
@@ -68,6 +81,7 @@ for (const receivedFirst of [true, false]) {
         owner: id("H"),
         kind: "tuple",
         definition: id("D"),
+        description: undefined,
         source: id("S"),
         listedByHost: true,
       });
@@ -95,6 +109,40 @@ test("an edit of a created node's child keeps the creation readable after the cr
       [id("C")],
     );
   }
+});
+
+test("a present node that reads real hides kind, definition and description, keeps them stored, and reads its source", () => {
+  const [a, b] = replicas([{ name: "H" }]);
+  command(a!, [created()], () => writeDescription(a!.store, id("R"), "note"));
+  sync(a!, b!);
+  command(b!, [], (cmd) => {
+    writeReal(b!.store, id("R"), b!.store.doc.peerIdStr);
+    writeSupport(b!.store, id("R"), cmd);
+  });
+  sync(a!, b!);
+
+  for (const r of [a!, b!]) {
+    deepStrictEqual(reads(r), {
+      present: true,
+      owner: id("H"),
+      kind: undefined,
+      definition: undefined,
+      description: undefined,
+      source: id("S"),
+      listedByHost: true,
+    });
+    deepStrictEqual(
+      [kindOf(r.store, id("R")), tupleDefinitionIdOf(r.store, id("R")), descriptionOf(r.store, id("R"))],
+      ["tuple", id("D"), "note"],
+      "the stored values stay",
+    );
+  }
+  b!.undo.undo();
+  sync(a!, b!);
+  deepStrictEqual(
+    [kindRead(a!, id("R")), tupleDefinitionRead(a!, id("R")), descriptionRead(a!, id("R"))],
+    ["tuple", id("D"), "note"],
+  );
 });
 
 const D = id("D");

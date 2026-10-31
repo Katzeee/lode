@@ -1,9 +1,11 @@
-// Purpose: Guards a copy's effective name: it reads its base until the first edit seeds it, the edit undoes back to the base, an undone creation reads no name, and another replica's edit on the seed survives.
+// Purpose: Guards a copy's effective name: it reads its base until the first edit seeds it, the edit undoes back to the base, an undone creation reads no name, another replica's edit on the seed survives, and a node that reads real reads its own text and is never seeded.
 
 import { deepStrictEqual } from "node:assert/strict";
 import { test } from "node:test";
 import type { Delta } from "loro-crdt";
-import { writeSupport } from "../store/records.ts";
+import type { CommandId } from "../store/command-id.ts";
+import { isNameSeeded, writeReal, writeSupport } from "../store/records.ts";
+import { nameText } from "../store/text.ts";
 import { nameOf, nameString, writableName } from "./content.ts";
 import { child, command, id, replicas, type Replica } from "./graph.test-support.ts";
 import { sync } from "../store/replicas.test-support.ts";
@@ -100,3 +102,58 @@ test("two first edits of one copy at once both seed it, doubling the base (Lode'
   deepStrictEqual(nameString(a!, D), nameString(b!, D));
   deepStrictEqual(nameString(a!, D).length, "TodoATodoB".length);
 });
+
+/**
+ * Make-real's writes on D as direct key writes: under Trash, this peer's `real|` key, support, its
+ * observed name characters deleted; then `text` typed through `writableName`.
+ */
+const makeRealAndType = (r: Replica, text: string) =>
+  command(r, [], (cmd: CommandId) => {
+    r.store.ownership.moveOwner(D, id("trash"));
+    writeReal(r.store, D, r.store.doc.peerIdStr);
+    writeSupport(r.store, D, cmd);
+    const name = nameText(r.store, D);
+    name.delete(0, name.length);
+    writableName(r, D).insert(0, text);
+  });
+
+test("a copy made real reads its own text on every replica, never its base or the base's marks, and is not seeded", () => {
+  const [a, b] = replicas([{ name: "I" }, { name: "K" }]);
+  command(a!, [copy({ nameBase: [...base, { insert: "￼", attributes: { ref: id("K") } }] })]);
+  a!.undo.undo();
+  sync(a!, b!);
+  makeRealAndType(b!, "new");
+  sync(a!, b!);
+
+  for (const r of [a!, b!]) {
+    deepStrictEqual([nameOf(r, D), inlineNodes(r, D), isNameSeeded(r.store, D)], [[{ insert: "new" }], [], false]);
+  }
+});
+
+for (const seeded of [false, true]) {
+  test(`once every real key is withdrawn, the creator's Redo reads ${seeded ? "its seeded text" : "the base"} again`, () => {
+    const [a, b] = replicas([{ name: "I" }]);
+    command(a!, [copy()]);
+    if (seeded) {
+      command(a!, [], (cmd) => {
+        append(a!, "!");
+        writeSupport(a!.store, D, cmd);
+      });
+    }
+    undoAll(a!);
+    sync(a!, b!);
+    makeRealAndType(b!, "B");
+    sync(a!, b!);
+    redoAll(a!);
+    sync(a!, b!);
+    for (const r of [a!, b!]) {
+      deepStrictEqual(nameString(r, D), seeded ? "B!" : "B", "B's real key keeps the name on the text");
+    }
+
+    b!.undo.undo();
+    sync(a!, b!);
+    for (const r of [a!, b!]) {
+      deepStrictEqual(nameOf(r, D), seeded ? [{ insert: "To", attributes: { bold: true } }, { insert: "do!" }] : base);
+    }
+  });
+}
