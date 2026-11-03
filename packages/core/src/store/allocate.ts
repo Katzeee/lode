@@ -40,10 +40,11 @@ export function allocate(
 /**
  * The one way a node comes to exist: its incarnation, creation facts, owner listing, and the relations
  * toward it, written into the open transaction for the caller to commit. A parent may be a node
- * allocated earlier in the same call. An id this replica already allocated, or one the call repeats,
- * is refused before anything is written: a second local incarnation would only split what one replica
- * created, so the caller checks `store.has` and decides. Another replica may still create the same
- * NodeId concurrently.
+ * allocated earlier in the same call. Refused before anything is written, so a refusal leaves no partial
+ * identity behind: an id this replica already allocated or the call repeats, since a second local
+ * incarnation would only split what one replica created (the caller checks `store.has` and decides),
+ * and a parent or relation host neither allocated nor earlier in the call. Another replica may still
+ * create the same NodeId concurrently.
  */
 export function writeAllocation(
   store: Store,
@@ -52,11 +53,19 @@ export function writeAllocation(
   relations: readonly AllocatedRelation[] = [],
 ): void {
   const ids = new Set<NodeId>();
-  for (const { id } of nodes) {
+  for (const { id, parent } of nodes) {
     if (store.has(id) || ids.has(id)) {
       throw new Error(`node ${id} is already allocated`);
     }
+    if (parent !== undefined && !store.has(parent) && !ids.has(parent)) {
+      throw new Error(`parent ${parent} of ${id} is not allocated before it`);
+    }
     ids.add(id);
+  }
+  for (const { host } of relations) {
+    if (!store.has(host) && !ids.has(host)) {
+      throw new Error(`relation host ${host} is not allocated`);
+    }
   }
   for (const spec of nodes) {
     store.ownership.create(spec.id, spec.parent);

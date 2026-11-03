@@ -1,13 +1,14 @@
 // Purpose: Builds test replicas and coordinates their command commits and update exchange.
 
-import { UndoManager } from "loro-crdt";
+import type { UndoManager } from "loro-crdt";
 import { nextCommandId, type CommandId } from "./command-id.ts";
 import type { NodeId } from "./node-id.ts";
-import { COMMAND, EXCLUDED, GENESIS } from "./origins.ts";
+import { COMMAND, GENESIS } from "./origins.ts";
 import { writeAllocation } from "./allocate.ts";
 import { writeDocId, type DocId } from "./doc-id.ts";
 import { writeSupport } from "./records.ts";
 import { Store } from "./store.ts";
+import { newUndoManager } from "./undo.ts";
 
 /** One replica of a test document with its own undo manager, configured as a workspace's is. */
 export type Replica = { store: Store; undo: UndoManager };
@@ -44,7 +45,7 @@ export function replica(peer: bigint, snapshot: Uint8Array): Replica {
   const doc = Store.newDoc();
   doc.import(snapshot);
   doc.setPeerId(peer);
-  return { store: new Store(doc), undo: new UndoManager(doc, { mergeInterval: 0, excludeOriginPrefixes: [EXCLUDED] }) };
+  return { store: new Store(doc), undo: newUndoManager(doc) };
 }
 
 /** Runs `write` as one command and commits it as one undo step. */

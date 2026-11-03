@@ -1,4 +1,4 @@
-// Purpose: Guards creation facts surviving a command's single-step undo and redo, and the refusal of an id already allocated before anything is written.
+// Purpose: Guards creation facts surviving a command's single-step undo and redo, and the refusal of an allocation it cannot complete before anything is written.
 
 import { deepStrictEqual, strictEqual, throws } from "node:assert/strict";
 import { test } from "node:test";
@@ -58,12 +58,16 @@ test("undo of a command keeps its allocation and takes one step", () => {
   deepStrictEqual([supportsOf(a.store, app).size, nameText(a.store, "A" as NodeId).toString()], [1, "typed"]);
 });
 
-test("an id already allocated, or repeated in one call, is refused before anything is written", () => {
+test("an id already allocated or repeated, and a parent or host not allocated before it, are refused before anything is written", () => {
   const a = replica(1n, base([{ id: "H" }, { id: "N", parent: "H" }]));
   const version = a.store.doc.oplogVersion().toJSON();
   const allocation = (id: string) => ({ id: id as NodeId, parent: "H" as NodeId, listed: true });
   throws(() => allocate(a.store, nextCommandId(a.store.doc), [allocation("X"), allocation("N")]), /already allocated/);
   throws(() => allocate(a.store, nextCommandId(a.store.doc), [allocation("X"), allocation("X")]), /already allocated/);
+  const forward = [allocation("X"), { ...allocation("Y"), parent: "Z" as NodeId }, allocation("Z")];
+  throws(() => allocate(a.store, nextCommandId(a.store.doc), forward), /not allocated before it/);
+  const host = [{ host: "U" as NodeId, relation: { type: "meta" as const, target: "X" as NodeId } }];
+  throws(() => allocate(a.store, nextCommandId(a.store.doc), [allocation("X")], host), /not allocated/);
   deepStrictEqual([a.store.doc.oplogVersion().toJSON(), a.store.has("X" as NodeId)], [version, false]);
   strictEqual(a.store.ownership.incarnationParents("N" as NodeId).length, 1);
 });
