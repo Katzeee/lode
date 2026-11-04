@@ -33,6 +33,26 @@ export function insertListing(store: Store, parent: NodeId, target: NodeId, inde
 }
 
 /**
+ * Moves the entry at `from` so that it ends at entry index `to`, which Loro counts on the list without
+ * the moved entry. A concurrent move of the same entry resolves by last writer, and one entry stays.
+ */
+export function moveListing(store: Store, parent: NodeId, from: number, to: number): void {
+  listing(store, parent).move(from, to);
+}
+
+/** Deletes every entry for `target` after its first that this replica sees. */
+export function deleteLaterListings(store: Store, parent: NodeId, target: NodeId): void {
+  const entries = listing(store, parent);
+  const values = entries.toArray();
+  const first = values.indexOf(target);
+  for (let index = values.length - 1; index > first; index--) {
+    if (values[index] === target) {
+      entries.delete(index, 1);
+    }
+  }
+}
+
+/**
  * Deletes every entry for `target` this replica sees and reports whether there was one. An entry
  * another replica inserts concurrently survives.
  */

@@ -81,22 +81,42 @@ export class Ownership {
    * nothing. Throws for a node or owner this replica never allocated.
    */
   moveOwner(id: NodeId, owner: NodeId | undefined): boolean {
+    const plan = this.#plan(id, owner);
+    for (const incarnation of plan?.moves ?? []) {
+      incarnation.move(plan?.target);
+    }
+    return (plan?.moves.length ?? 0) > 0;
+  }
+
+  /**
+   * Whether `moveOwner` would accept the change rather than refuse it, read before any write so a
+   * caller decides every refusal first. An owner it already has is accepted, as a change that moves
+   * nothing.
+   */
+  canMoveOwner(id: NodeId, owner: NodeId | undefined): boolean {
+    return this.#plan(id, owner) !== undefined;
+  }
+
+  /** The incarnations a change of owner moves and where, or undefined when it is refused. */
+  #plan(
+    id: NodeId,
+    owner: NodeId | undefined,
+  ): { target: LoroTreeNode | undefined; moves: LoroTreeNode[] } | undefined {
     const canonical = this.#canonical(id);
     if (owner !== undefined && this.ownsOrIs(id, owner)) {
-      return false;
+      return undefined;
     }
     const target = owner === undefined ? undefined : this.#canonical(owner);
     if (target !== undefined && isTreeAncestor(canonical, target)) {
-      return false;
+      return undefined;
     }
-    let moved = false;
-    for (const incarnation of this.#locator.incarnations(id)) {
-      if (incarnation.parent()?.id !== target?.id && !(target !== undefined && isTreeAncestor(incarnation, target))) {
-        incarnation.move(target);
-        moved = true;
-      }
-    }
-    return moved;
+    const moves = this.#locator
+      .incarnations(id)
+      .filter(
+        (incarnation) =>
+          incarnation.parent()?.id !== target?.id && !(target !== undefined && isTreeAncestor(incarnation, target)),
+      );
+    return { target, moves };
   }
 
   /** Whether `candidate` is `id` or physically owned under it, walking NodeIds upward from `candidate`. */
